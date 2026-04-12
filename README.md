@@ -7,12 +7,8 @@ Write shadows the same way you write CSS. Get the same result on a PixiJS canvas
 ```typescript
 import { BoxShadowFilter } from 'pixi-box-shadow';
 
-// Exactly like CSS
 element.filters = [new BoxShadowFilter({
   boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)',
-  width: 200,
-  height: 100,
-  borderRadius: 8,
 })];
 ```
 
@@ -32,6 +28,7 @@ This plugin computes shadows **analytically in the GPU shader** using signed dis
 | Border-radius | ❌ | ✅ |
 | Multiple shadows | Stack multiple filters | ✅ Single pass (up to 8) |
 | CSS string | ❌ | ✅ |
+| Arbitrary shapes | ❌ | ✅ (`shapeMode: 'texture'`) |
 
 ---
 
@@ -70,13 +67,11 @@ app.stage.addChild(box);
 ```typescript
 box.filters = [new BoxShadowFilter({
   boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-  width: 200,
-  height: 100,
   borderRadius: 12,
 })];
 ```
 
-That's it. The shadow renders identically to how CSS would render it.
+That's it. The filter auto-detects the element's size. The shadow renders identically to how CSS would render it.
 
 ---
 
@@ -89,8 +84,6 @@ Pass any valid CSS `box-shadow` value:
 ```typescript
 const filter = new BoxShadowFilter({
   boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)',
-  width: 200,
-  height: 100,
   borderRadius: 8,
 });
 ```
@@ -110,9 +103,38 @@ const filter = new BoxShadowFilter({
       inset: false,
     },
   ],
-  width: 200,
-  height: 100,
   borderRadius: [10, 10, 0, 0], // per-corner: [TL, TR, BR, BL]
+});
+```
+
+### Arbitrary Shapes (`shapeMode: 'texture'`)
+
+For non-rectangular elements (circles, stars, sprites, text), use texture mode.
+Instead of assuming a rounded rectangle, the shader reads the element's actual alpha channel:
+
+```typescript
+// Works with any shape — circles, stars, sprites, text, etc.
+circle.filters = [new BoxShadowFilter({
+  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+  shapeMode: 'texture',
+})];
+```
+
+Texture mode uses multi-tap Gaussian-weighted sampling. The `quality` option controls the base sample count (automatically scaled up for large blurs):
+
+| Quality | Base samples | Use case |
+|---|---|---|
+| 1 | 16 | Fast preview, small blur values |
+| 2 | 32 | Good balance |
+| **3** (default) | **48** | Recommended for most use cases |
+| 4 | 64 | High quality, large blurs |
+| 5 | 80 | Maximum quality |
+
+```typescript
+const filter = new BoxShadowFilter({
+  boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+  shapeMode: 'texture',
+  quality: 4,
 });
 ```
 
@@ -122,13 +144,13 @@ const filter = new BoxShadowFilter({
 // Change the shadow
 filter.boxShadow = 'inset 0 0 10px rgba(0,0,0,0.5)';
 
-// Change element dimensions
-filter.elementWidth = 300;
-filter.elementHeight = 150;
-
 // Change border radius
 filter.borderRadius = 20;
 filter.borderRadius = [0, 16, 16, 0];
+
+// Switch shape mode at runtime
+filter.shapeMode = 'texture';
+filter.quality = 4;
 ```
 
 ### Animating Shadows (fast path)
@@ -166,19 +188,7 @@ Everything CSS `box-shadow` can do:
 | `rgb()` / `rgba()` | ✅ | `rgba(0, 0, 0, 0.5)` |
 | `hsl()` / `hsla()` | ✅ | `hsla(0, 100%, 50%, 0.5)` |
 | Mixed inset + outer | ✅ | `0 4px 8px black, inset 0 2px 4px black` |
-
-### Important: `width` and `height` are required
-
-Unlike CSS where the browser knows the element size, PixiJS filters don't have access to the element's dimensions. You must pass `width` and `height` so the SDF shader knows where to draw the shadow edges.
-
-```typescript
-// These must match your Graphics/Sprite dimensions
-new BoxShadowFilter({
-  boxShadow: '...',
-  width: 200,   // ← must match element width
-  height: 100,  // ← must match element height
-});
-```
+| Arbitrary shapes | ✅ | `shapeMode: 'texture'` |
 
 ---
 
@@ -191,16 +201,16 @@ The main class. Extends PixiJS `Filter`.
 #### Constructor
 
 ```typescript
-new BoxShadowFilter(options: BoxShadowFilterOptions)
+new BoxShadowFilter(options?: BoxShadowFilterOptions)
 ```
 
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `boxShadow` | `string` | — | CSS `box-shadow` string. If provided, `shadows` is ignored. |
 | `shadows` | `(BoxShadowOptions \| string)[]` | `[]` | Array of shadow definitions (objects or individual CSS strings). |
-| `width` | `number` | **required** | Element width in pixels. |
-| `height` | `number` | **required** | Element height in pixels. |
-| `borderRadius` | `number \| [number, number, number, number]` | `0` | Corner radii in pixels. Single number = all corners. Array = `[TL, TR, BR, BL]`. |
+| `borderRadius` | `number \| [number, number, number, number]` | `0` | Corner radii in pixels. Single number = all corners. Array = `[TL, TR, BR, BL]`. Only used in `'box'` mode. |
+| `shapeMode` | `'box' \| 'texture'` | `'box'` | `'box'` = analytical SDF (fastest). `'texture'` = alpha-channel sampling (any shape). |
+| `quality` | `number` (1–5) | `3` | Base sample count for texture mode. Automatically scaled for large blurs. Ignored in box mode. |
 
 #### Properties
 
@@ -208,9 +218,11 @@ new BoxShadowFilter(options: BoxShadowFilterOptions)
 |---|---|---|
 | `boxShadow` | `string` (get/set) | Get or set the CSS box-shadow string. |
 | `shadows` | `BoxShadowOptions[]` (get/set) | Get or set the typed shadow definitions. |
-| `elementWidth` | `number` (get/set) | Element width. |
-| `elementHeight` | `number` (get/set) | Element height. |
+| `elementWidth` | `number` (readonly) | Current detected element width. |
+| `elementHeight` | `number` (readonly) | Current detected element height. |
 | `borderRadius` | `number \| [...]` (get/set) | Border radius. |
+| `shapeMode` | `'box' \| 'texture'` (get/set) | Shadow shape computation mode. |
+| `quality` | `number` (get/set) | Texture sampling quality (1–5). |
 | `uniforms` | `object` | Direct access to GPU uniform arrays (for animation). |
 
 ### `BoxShadowOptions`
@@ -252,7 +264,18 @@ If you need more than 8, stack multiple `BoxShadowFilter` instances. But 8 cover
 
 ## Performance
 
-### Why it's fast
+### Shape modes compared
+
+| | Box mode (default) | Texture mode |
+|---|---|---|
+| **Shape support** | Rounded rectangles only | Any shape |
+| **Per-pixel cost** | O(1) — a few `erf` evaluations | O(quality × 16) texture reads (auto-scaled for large blurs) |
+| **Best for** | UI panels, cards, buttons | Sprites, icons, text, complex shapes |
+| **Blur cost scaling** | None — constant regardless of blur | None — fixed sample budget per quality level |
+
+Both modes are single-pass with no offscreen textures for the shadow itself.
+
+### Why box mode is fast
 
 Traditional shadow filters (like DropShadowFilter) work by:
 1. Rendering the object to a texture
@@ -261,7 +284,13 @@ Traditional shadow filters (like DropShadowFilter) work by:
 
 Each blur pass costs GPU time proportional to the blur radius. A 50px blur needs many passes.
 
-**pixi-box-shadow** skips all of this. Instead, the fragment shader computes the shadow value for each pixel **analytically** using the [error function](https://en.wikipedia.org/wiki/Error_function) (`erf`). The cost is the same whether your blur is 1px or 1000px.
+**pixi-box-shadow** in box mode skips all of this. Instead, the fragment shader computes the shadow value for each pixel **analytically** using the [error function](https://en.wikipedia.org/wiki/Error_function) (`erf`). The cost is the same whether your blur is 1px or 1000px.
+
+### Texture mode performance
+
+Texture mode uses a golden-angle spiral disc sampling pattern with Gaussian weighting. The sample count auto-scales with blur size (up to 4x for large blurs, capped at 256 samples) to maintain consistent quality.
+
+Use quality 1–2 for preview / mobile, 3 for desktop, 4–5 for high-fidelity.
 
 ### Idle behavior
 
@@ -293,8 +322,10 @@ filter.uniforms.uShadowColor[3] = 0.6;      // alpha (0–1)
 | `uShadowColor` | `Float32Array(32)` | Per shadow: `[r, g, b, a]` × 8 (values 0–1) |
 | `uShadowInset` | `Float32Array(8)` | Per shadow: `0.0` = outer, `1.0` = inset |
 | `uShadowCount` | `number` | Number of active shadows |
-| `uElementSize` | `Float32Array(2)` | `[width, height]` |
+| `uElementSize` | `Float32Array(2)` | `[width, height]` (auto-detected) |
 | `uBorderRadius` | `Float32Array(4)` | `[TL, TR, BR, BL]` corner radii |
+| `uShapeMode` | `number` | `0` = box, `1` = texture |
+| `uQuality` | `number` | Texture mode sample multiplier (1–5) |
 
 ---
 
@@ -311,7 +342,7 @@ npm run typecheck  # TypeScript type checking
 
 The dev server opens a test page with two tabs:
 
-- **Visual** — 16 side-by-side comparisons of CSS vs PixiJS shadows
+- **Visual** — 29 side-by-side comparisons of CSS vs PixiJS shadows, including texture-mode demos for 7 different shapes
 - **Performance** — Animated benchmarks (color transitions, size transitions) with FPS counters and pause/play controls
 
 ### Project structure
@@ -335,17 +366,18 @@ src/
 
 > This section is for contributors and curious developers. You don't need to understand this to use the library.
 
-### The problem with blur-based shadows
+### Auto-sizing
 
-CSS `box-shadow` is a Gaussian-blurred rectangle. The naive GPU approach is:
+The filter overrides `apply()` to read the input texture's frame dimensions. Since PixiJS adds `padding` pixels on each side when rendering the element to the filter texture, the element size is:
 
-1. Render the rectangle to a texture
-2. Apply a Gaussian blur (typically as two separable 1D passes)
-3. Composite the result
+```
+elementWidth  = inputFrame.width  - 2 × padding
+elementHeight = inputFrame.height - 2 × padding
+```
 
-This is O(blur_radius) per pass — large blurs are expensive. The DropShadowFilter uses Kawase blur (a faster approximation), but it's still multi-pass and doesn't support spread or inset.
+This is always on — there's no manual size to pass. The input frame is the ground truth for the element's rendered size, so auto-detection is always correct.
 
-### Our approach: analytical computation
+### Box mode: analytical computation
 
 A Gaussian blur of a 1D box function `[-w, +w]` has a closed-form solution:
 
@@ -366,6 +398,18 @@ A rounded rectangle is not separable, so we can't just multiply X × Y. Instead,
 3. Feed the SDF distance through `gaussianCDF(d, σ)` to get the shadow intensity
 
 This produces a smooth Gaussian-like falloff that closely matches the true analytical convolution.
+
+### Texture mode: alpha-channel sampling
+
+When `shapeMode` is `'texture'`, the shader doesn't assume any geometric shape. Instead, for each shadow it:
+
+1. Offsets the texture coordinate by the shadow's `(offsetX, offsetY)`
+2. Samples the element's alpha channel at the center point plus many points in a disc
+3. Weights all samples using a Gaussian kernel (`exp(-d²/2σ²)`)
+4. Applies spread adjustment via alpha bias/rescale
+5. Uses the result as the shadow intensity
+
+The sampling pattern uses a **golden-angle spiral** (`θ = i × 2.39996...`) which distributes points evenly across a disc without clustering. The disc radius extends to 3σ (covering 99.7% of the Gaussian). Sample count automatically scales up to 4x for large blurs (σ > 8px) to maintain consistent quality.
 
 ### The `erf` approximation
 
@@ -394,7 +438,7 @@ The shader separates outer and inset shadow accumulation, then composites them i
 
 ### Spread and inset
 
-- **Spread** expands (positive) or contracts (negative) the shadow rectangle before computing the shadow. The corner radii are adjusted proportionally.
+- **Spread** expands (positive) or contracts (negative) the shadow rectangle before computing the shadow. The corner radii are adjusted proportionally. In texture mode, spread is approximated via alpha bias/rescale.
 - **Inset** inverts the shadow: it computes the shadow of a *shrunk* rectangle and takes `1 - value`, then clips to the element boundary using the SDF.
 
 ### References
@@ -407,10 +451,10 @@ The shader separates outer and inset shadow accumulation, then composites them i
 
 ## Known Limitations
 
-- **`width` and `height` are required** — The filter can't auto-detect element dimensions. You must set them manually and keep them in sync if the element resizes.
 - **Max 8 shadows** — The GPU uniform array has a fixed size. This covers virtually all real-world usage. If you need more, use multiple filter instances.
 - **No `em`/`rem` unit support** — The parser accepts `px` and bare numbers only. Convert units yourself before passing to the filter.
 - **No `border-radius: 50%`** — Percentage-based radii aren't supported. Pass the computed pixel value instead (e.g., `Math.min(width, height) / 2`).
+- **Texture mode spread** — Spread is approximated in texture mode (no geometric model to expand/contract). Results are close but not pixel-identical to box mode spread.
 
 ---
 

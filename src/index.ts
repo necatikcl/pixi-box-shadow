@@ -11,5 +11,5 @@
 
 export { BoxShadowFilter } from './BoxShadowFilter';
 export { parseBoxShadow } from './parser';
-export type { BoxShadowOptions, BoxShadowFilterOptions } from './types';
+export type { BoxShadowOptions, BoxShadowFilterOptions, ShapeMode } from './types';
 export { MAX_SHADOWS } from './types';

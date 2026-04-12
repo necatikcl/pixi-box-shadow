@@ -1,10 +1,12 @@
 import { Filter, GlProgram, GpuProgram } from 'pixi.js';
-import type { BoxShadowFilterOptions, BoxShadowOptions } from './types';
+import type { FilterSystem } from 'pixi.js';
+import type { Texture } from 'pixi.js';
+import type { RenderSurface } from 'pixi.js';
+import type { BoxShadowFilterOptions, BoxShadowOptions, ShapeMode } from './types';
 import { MAX_SHADOWS } from './types';
 import { parseBoxShadow } from './parser';
 import { calculatePadding, normalizeBorderRadius, resolveColor } from './utils';
 
-// Import shaders as raw strings
 import vertexSrc from './shaders/box-shadow.vert?raw';
 import fragmentSrc from './shaders/box-shadow.frag?raw';
 import wgslSrc from './shaders/box-shadow.wgsl?raw';
@@ -15,50 +17,25 @@ import wgslSrc from './shaders/box-shadow.wgsl?raw';
  * Uses SDF (Signed Distance Field) analytical Gaussian blur to compute
  * shadows in a single pass with O(1) cost per pixel.
  *
- * Supports all CSS box-shadow features:
- * - Offset (x, y)
- * - Blur radius
- * - Spread radius (positive and negative)
- * - Inset shadows
- * - Per-corner border-radius
- * - Multiple shadows (up to 8 per filter)
- * - Full color + alpha control
+ * Element size is always auto-detected from the display object's rendered
+ * bounds — no manual `width`/`height` needed.
  *
- * **Cache / idle behavior:**
- * This filter only runs when the display object is re-rendered.
- * When nothing changes (no property updates, no scene changes),
- * the GPU shader is NOT invoked — zero cost at idle. Uniform
- * updates (color, size, etc.) are simple typed-array writes with
- * no allocation, no string parsing, and no re-compilation.
- *
- * For dynamic animations, mutate `filter.uniforms.uShadowColor`
- * or similar typed arrays directly to avoid any overhead from
- * the property setters which re-parse and re-allocate.
+ * Two shape modes are available:
+ * - `'box'` (default) — SDF rounded rectangle. Fastest.
+ * - `'texture'` — reads the element's alpha channel. Supports any shape.
  *
  * @example
  * ```typescript
- * // CSS string syntax
- * const filter = new BoxShadowFilter({
- *   boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)',
- *   width: 200,
- *   height: 100,
- *   borderRadius: 8,
- * });
- * graphics.filters = [filter];
+ * // Minimal — just add a shadow
+ * sprite.filters = [new BoxShadowFilter({
+ *   boxShadow: '0 4px 6px rgba(0,0,0,0.3)',
+ * })];
  *
- * // Typed options
- * const filter = new BoxShadowFilter({
- *   shadows: [{ offsetX: 0, offsetY: 4, blur: 8, spread: 0, color: 0x000000, alpha: 0.3, inset: false }],
- *   width: 200,
- *   height: 100,
- *   borderRadius: [10, 10, 0, 0],
- * });
- *
- * // Direct uniform mutation for animations (fastest path)
- * filter.uniforms.uShadowColor[0] = 1.0; // r
- * filter.uniforms.uShadowColor[1] = 0.0; // g
- * filter.uniforms.uShadowColor[2] = 0.0; // b
- * filter.uniforms.uShadowColor[3] = 0.5; // a
+ * // Arbitrary shapes — texture-based
+ * star.filters = [new BoxShadowFilter({
+ *   boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+ *   shapeMode: 'texture',
+ * })];
  * ```
  */
 export class BoxShadowFilter extends Filter {
@@ -69,12 +46,16 @@ export class BoxShadowFilter extends Filter {
   public static readonly DEFAULT_OPTIONS: Partial<BoxShadowFilterOptions> = {
     shadows: [],
     borderRadius: 0,
+    shapeMode: 'box',
+    quality: 3,
   };
 
   private _shadows: BoxShadowOptions[] = [];
   private _borderRadius: [number, number, number, number] = [0, 0, 0, 0];
-  private _width: number;
-  private _height: number;
+  private _width: number = 0;
+  private _height: number = 0;
+  private _shapeMode: ShapeMode;
+  private _quality: number;
 
   // Typed uniform accessor
   public uniforms: {
@@ -85,12 +66,13 @@ export class BoxShadowFilter extends Filter {
     uShadowOffsetBlurSpread: Float32Array;
     uShadowColor: Float32Array;
     uShadowInset: Float32Array;
+    uShapeMode: number;
+    uQuality: number;
   };
 
-  constructor(options: BoxShadowFilterOptions) {
+  constructor(options: BoxShadowFilterOptions = {}) {
     const opts = { ...BoxShadowFilter.DEFAULT_OPTIONS, ...options };
 
-    // Parse shadows
     let shadows: BoxShadowOptions[];
     if (opts.boxShadow) {
       shadows = parseBoxShadow(opts.boxShadow);
@@ -103,7 +85,6 @@ export class BoxShadowFilter extends Filter {
       shadows = [];
     }
 
-    // Clamp to max shadows
     if (shadows.length > MAX_SHADOWS) {
       console.warn(`BoxShadowFilter: Max ${MAX_SHADOWS} shadows supported. Extra shadows will be ignored.`);
       shadows = shadows.slice(0, MAX_SHADOWS);
@@ -112,7 +93,9 @@ export class BoxShadowFilter extends Filter {
     const borderRadius = normalizeBorderRadius(opts.borderRadius);
     const pad = calculatePadding(shadows);
 
-    // Create GPU programs
+    const shapeMode: ShapeMode = opts.shapeMode ?? 'box';
+    const quality = Math.max(1, Math.min(5, Math.round(opts.quality ?? 3)));
+
     const glProgram = GlProgram.from({
       vertex: vertexSrc,
       fragment: fragmentSrc,
@@ -130,7 +113,6 @@ export class BoxShadowFilter extends Filter {
       },
     });
 
-    // Initialize uniform data arrays
     const shadowOffsetBlurSpread = new Float32Array(MAX_SHADOWS * 4);
     const shadowColor = new Float32Array(MAX_SHADOWS * 4);
     const shadowInset = new Float32Array(MAX_SHADOWS);
@@ -140,42 +122,57 @@ export class BoxShadowFilter extends Filter {
       glProgram,
       resources: {
         boxShadowUniforms: {
-          uElementSize: { value: new Float32Array([opts.width, opts.height]), type: 'vec2<f32>' },
+          uElementSize: { value: new Float32Array([0, 0]), type: 'vec2<f32>' },
           uPaddingOffset: { value: new Float32Array([pad, pad]), type: 'vec2<f32>' },
           uBorderRadius: { value: new Float32Array(borderRadius), type: 'vec4<f32>' },
           uShadowCount: { value: shadows.length, type: 'i32' },
+          uShapeMode: { value: shapeMode === 'texture' ? 1 : 0, type: 'i32' },
+          uQuality: { value: quality, type: 'i32' },
           uShadowOffsetBlurSpread: { value: shadowOffsetBlurSpread, type: 'vec4<f32>', size: MAX_SHADOWS },
           uShadowColor: { value: shadowColor, type: 'vec4<f32>', size: MAX_SHADOWS },
           uShadowInset: { value: shadowInset, type: 'f32', size: MAX_SHADOWS },
         },
       },
       padding: pad,
-      // Inherit renderer resolution so the filter renders at the correct DPR
-      // (e.g. 2x on retina displays). Without this, filters default to 1x
-      // which causes blurry output on high-DPI screens.
       resolution: 'inherit',
     });
 
     this.uniforms = this.resources.boxShadowUniforms.uniforms;
-    this._width = opts.width;
-    this._height = opts.height;
     this._borderRadius = borderRadius;
     this._shadows = shadows;
+    this._shapeMode = shapeMode;
+    this._quality = quality;
 
-    // Pack shadow data into uniforms
     this._updateShadowUniforms();
+  }
+
+  // ----------------------------------------------------------------
+  // Filter apply — always derive size from input texture
+  // ----------------------------------------------------------------
+
+  apply(filterManager: FilterSystem, input: Texture, output: RenderSurface, clearMode: boolean): void {
+    const pad = this.padding;
+    const w = input.frame.width - pad * 2;
+    const h = input.frame.height - pad * 2;
+
+    if (w !== this._width || h !== this._height) {
+      this._width = w;
+      this._height = h;
+      this.uniforms.uElementSize[0] = w;
+      this.uniforms.uElementSize[1] = h;
+    }
+
+    filterManager.applyFilter(this, input, output, clearMode);
   }
 
   // ----------------------------------------------------------------
   // Shadow data management
   // ----------------------------------------------------------------
 
-  /** Get the current shadow definitions. */
   get shadows(): BoxShadowOptions[] {
     return this._shadows;
   }
 
-  /** Set shadow definitions (typed objects or CSS strings). */
   set shadows(value: (BoxShadowOptions | string)[]) {
     let shadows = value.map((s) => {
       if (typeof s === 'string') return parseBoxShadow(s)[0];
@@ -190,12 +187,10 @@ export class BoxShadowFilter extends Filter {
     this._updatePadding();
   }
 
-  /** Set shadows from a CSS box-shadow string. */
   set boxShadow(value: string) {
     this.shadows = parseBoxShadow(value);
   }
 
-  /** Get a CSS-like representation of the current shadows. */
   get boxShadow(): string {
     return this._shadows.map((s) => {
       const parts: string[] = [];
@@ -212,24 +207,14 @@ export class BoxShadowFilter extends Filter {
   }
 
   // ----------------------------------------------------------------
-  // Element geometry
+  // Element geometry (read-only — always auto-detected)
   // ----------------------------------------------------------------
 
-  /** Element width in pixels. */
+  /** Current element width in pixels (auto-detected from display object bounds). */
   get elementWidth(): number { return this._width; }
-  set elementWidth(value: number) {
-    this._width = value;
-    this.uniforms.uElementSize[0] = value;
-    this._updatePadding();
-  }
 
-  /** Element height in pixels. */
+  /** Current element height in pixels (auto-detected from display object bounds). */
   get elementHeight(): number { return this._height; }
-  set elementHeight(value: number) {
-    this._height = value;
-    this.uniforms.uElementSize[1] = value;
-    this._updatePadding();
-  }
 
   /** Border radius. Uniform number or [TL, TR, BR, BL] array. */
   get borderRadius(): number | [number, number, number, number] {
@@ -247,10 +232,31 @@ export class BoxShadowFilter extends Filter {
   }
 
   // ----------------------------------------------------------------
+  // Shape mode
+  // ----------------------------------------------------------------
+
+  get shapeMode(): ShapeMode {
+    return this._shapeMode;
+  }
+
+  set shapeMode(value: ShapeMode) {
+    this._shapeMode = value;
+    this.uniforms.uShapeMode = value === 'texture' ? 1 : 0;
+  }
+
+  get quality(): number {
+    return this._quality;
+  }
+
+  set quality(value: number) {
+    this._quality = Math.max(1, Math.min(5, Math.round(value)));
+    this.uniforms.uQuality = this._quality;
+  }
+
+  // ----------------------------------------------------------------
   // Private helpers
   // ----------------------------------------------------------------
 
-  /** Pack all shadow data into the uniform arrays. */
   private _updateShadowUniforms(): void {
     const count = this._shadows.length;
     this.uniforms.uShadowCount = count;
@@ -277,7 +283,6 @@ export class BoxShadowFilter extends Filter {
 
         insetArr[i] = s.inset ? 1.0 : 0.0;
       } else {
-        // Zero out unused slots
         obsArr[idx + 0] = 0;
         obsArr[idx + 1] = 0;
         obsArr[idx + 2] = 0;
@@ -293,7 +298,6 @@ export class BoxShadowFilter extends Filter {
     }
   }
 
-  /** Recalculate filter padding based on current shadows. */
   private _updatePadding(): void {
     const pad = calculatePadding(this._shadows);
     this.padding = pad;

@@ -1,11 +1,8 @@
 // pixi-box-shadow — GLSL Fragment Shader (WebGL)
 //
-// This shader computes CSS box-shadow analytically using:
-//   1. SDF (Signed Distance Field) of a rounded rectangle
-//   2. Gaussian CDF (via the error function) for smooth blur falloff
-//
-// It runs in a SINGLE PASS with O(1) cost per pixel regardless of blur radius.
-// No multi-pass blur, no offscreen textures for the shadow itself.
+// Two shape modes:
+//   shapeMode 0 ('box')     — analytical SDF rounded-rectangle, O(1) per pixel
+//   shapeMode 1 ('texture') — multi-tap alpha sampling, works with any shape
 //
 // Compositing order (matches CSS spec):
 //   1. Outer shadows — behind the element
@@ -26,16 +23,17 @@ out vec4 finalColor;
 uniform sampler2D uTexture;
 uniform vec4 uInputSize;
 
-// Element geometry (set from TypeScript)
-uniform vec2 uElementSize;          // width, height in pixels
-uniform vec4 uBorderRadius;         // corner radii: [TL, TR, BR, BL]
-uniform vec2 uPaddingOffset;        // filter padding (extends render area for outer shadows)
+uniform vec2 uElementSize;
+uniform vec4 uBorderRadius;
+uniform vec2 uPaddingOffset;
 
-// Shadow data — up to 8 shadows packed into uniform arrays
 uniform int uShadowCount;
-uniform vec4 uShadowOffsetBlurSpread[8]; // per shadow: [offsetX, offsetY, blurRadius, spreadRadius]
-uniform vec4 uShadowColor[8];            // per shadow: [r, g, b, a] in 0–1 range
-uniform float uShadowInset[8];           // per shadow: 0.0 = outer, 1.0 = inset
+uniform vec4 uShadowOffsetBlurSpread[8];
+uniform vec4 uShadowColor[8];
+uniform float uShadowInset[8];
+
+uniform int uShapeMode;   // 0 = box (SDF), 1 = texture (alpha sampling)
+uniform int uQuality;     // 1–5: multiplied by 16 to get sample count
 
 // ============================================================
 // Fast erf approximation (Abramowitz & Stegun 7.1.26)
@@ -47,12 +45,10 @@ float erf_approx(float x) {
     return sign(x) * y;
 }
 
-// Gaussian CDF: integral of Gaussian from -inf to x
 float gaussianCDF(float x, float sigma) {
     return 0.5 + 0.5 * erf_approx(x * (0.7071067811865476 / sigma));
 }
 
-// Blurred 1D box: Gaussian convolved with box [-halfW, halfW]
 float blurredBox1D(float x, float halfW, float sigma) {
     return gaussianCDF(x + halfW, sigma) - gaussianCDF(x - halfW, sigma);
 }
@@ -67,7 +63,7 @@ float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
 }
 
 // ============================================================
-// Analytical blurred rounded-rectangle shadow
+// Analytical blurred rounded-rectangle shadow (box mode)
 // ============================================================
 float roundedBoxShadow(vec2 p, vec2 halfSize, float sigma, vec4 radii) {
     if (sigma < 0.001) {
@@ -90,6 +86,58 @@ float roundedBoxShadow(vec2 p, vec2 halfSize, float sigma, vec4 radii) {
     return 1.0 - gaussianCDF(d, sigma);
 }
 
+// ============================================================
+// Texture-based alpha sampling with Gaussian-weighted disc
+// ============================================================
+// Golden angle in radians
+const float GOLDEN_ANGLE = 2.39996322973;
+
+float sampleAlphaDisc(vec2 uv, float sigma, float spread) {
+    if (sigma < 0.5 && abs(spread) < 0.5) {
+        return texture(uTexture, uv).a;
+    }
+
+    float effectiveSigma = max(sigma, 0.5);
+
+    int baseSamples = uQuality * 16;
+    float sigmaScale = clamp(effectiveSigma / 8.0, 1.0, 4.0);
+    int sampleCount = int(float(baseSamples) * sigmaScale);
+    sampleCount = min(sampleCount, 256);
+
+    float totalWeight = 0.0;
+    float totalAlpha = 0.0;
+    float invSigma2 = 1.0 / (2.0 * effectiveSigma * effectiveSigma);
+    float maxR = effectiveSigma * 3.0;
+
+    float centerAlpha = texture(uTexture, uv).a;
+    float centerW = 1.0;
+    totalAlpha += centerAlpha * centerW;
+    totalWeight += centerW;
+
+    for (int i = 0; i < 256; i++) {
+        if (i >= sampleCount) break;
+        float fi = float(i) + 1.0;
+        float r = maxR * sqrt(fi / float(sampleCount + 1));
+        float theta = fi * GOLDEN_ANGLE;
+        vec2 off = vec2(cos(theta), sin(theta)) * r;
+
+        vec2 sampleUV = uv + off * uInputSize.zw;
+        float w = exp(-dot(off, off) * invSigma2);
+        totalAlpha += texture(uTexture, sampleUV).a * w;
+        totalWeight += w;
+    }
+
+    float blurred = totalAlpha / max(totalWeight, 0.001);
+
+    if (abs(spread) > 0.5) {
+        float bias = -spread / (effectiveSigma * 2.0 + 1.0);
+        float scale = 1.0 + abs(spread) / (effectiveSigma + 1.0);
+        blurred = clamp((blurred - 0.5 + bias) * scale + 0.5, 0.0, 1.0);
+    }
+
+    return blurred;
+}
+
 void main(void) {
     vec4 texColor = texture(uTexture, vTextureCoord);
 
@@ -101,22 +149,17 @@ void main(void) {
     float maxR = min(halfSize.x, halfSize.y);
     vec4 baseRadii = min(uBorderRadius, vec4(maxR));
 
-    // Element mask for inset shadows
     float elementSDF = sdRoundedBox(p, halfSize, baseRadii);
-    float insideElement = 1.0 - smoothstep(-0.5, 0.5, elementSDF);
-
-    // CSS compositing order:
-    //   1. Outer shadows (behind element)
-    //   2. Element background + content (the texture)
-    //   3. Inset shadows (on top of element, blended over it)
-    //
-    // We must separate outer and inset shadows because they composite
-    // at different layers in the stack.
+    float insideElement;
+    if (uShapeMode == 1) {
+        insideElement = texColor.a;
+    } else {
+        insideElement = 1.0 - smoothstep(-0.5, 0.5, elementSDF);
+    }
 
     vec4 outerResult = vec4(0.0);
     vec4 insetResult = vec4(0.0);
 
-    // Accumulate shadows back-to-front within each category
     for (int i = 7; i >= 0; i--) {
         if (i >= uShadowCount) continue;
 
@@ -128,27 +171,43 @@ void main(void) {
         float isInset = uShadowInset[i];
 
         float sigma = blur * 0.5;
-        vec2 shadowP = p - offset;
         float shadowValue;
 
-        if (isInset > 0.5) {
-            // INSET: shadow inside the element
-            vec2 insetHalf = max(halfSize - spread, vec2(0.001));
-            vec4 insetRadii = clamp(baseRadii - spread, vec4(0.0), vec4(min(insetHalf.x, insetHalf.y)));
-            float inner = roundedBoxShadow(shadowP, insetHalf, sigma, insetRadii);
-            // Shadow appears where we're inside the element but outside the shrunk rect
-            shadowValue = (1.0 - inner) * insideElement;
+        if (uShapeMode == 1) {
+            vec2 offsetUV = offset * uInputSize.zw;
+            float sampledAlpha = sampleAlphaDisc(vTextureCoord - offsetUV, sigma, isInset > 0.5 ? -spread : spread);
+
+            if (isInset > 0.5) {
+                shadowValue = (1.0 - sampledAlpha) * insideElement;
+            } else {
+                shadowValue = sampledAlpha;
+            }
 
             vec4 shadow = vec4(shadowCol.rgb * shadowCol.a * shadowValue, shadowCol.a * shadowValue);
-            insetResult = insetResult + shadow * (1.0 - insetResult.a);
+            if (isInset > 0.5) {
+                insetResult = insetResult + shadow * (1.0 - insetResult.a);
+            } else {
+                outerResult = outerResult + shadow * (1.0 - outerResult.a);
+            }
         } else {
-            // OUTER: shadow outside the element
-            vec2 outerHalf = max(halfSize + spread, vec2(0.001));
-            vec4 outerRadii = clamp(baseRadii + spread, vec4(0.0), vec4(min(outerHalf.x, outerHalf.y)));
-            shadowValue = roundedBoxShadow(shadowP, outerHalf, sigma, outerRadii);
+            vec2 shadowP = p - offset;
 
-            vec4 shadow = vec4(shadowCol.rgb * shadowCol.a * shadowValue, shadowCol.a * shadowValue);
-            outerResult = outerResult + shadow * (1.0 - outerResult.a);
+            if (isInset > 0.5) {
+                vec2 insetHalf = max(halfSize - spread, vec2(0.001));
+                vec4 insetRadii = clamp(baseRadii - spread, vec4(0.0), vec4(min(insetHalf.x, insetHalf.y)));
+                float inner = roundedBoxShadow(shadowP, insetHalf, sigma, insetRadii);
+                shadowValue = (1.0 - inner) * insideElement;
+
+                vec4 shadow = vec4(shadowCol.rgb * shadowCol.a * shadowValue, shadowCol.a * shadowValue);
+                insetResult = insetResult + shadow * (1.0 - insetResult.a);
+            } else {
+                vec2 outerHalf = max(halfSize + spread, vec2(0.001));
+                vec4 outerRadii = clamp(baseRadii + spread, vec4(0.0), vec4(min(outerHalf.x, outerHalf.y)));
+                shadowValue = roundedBoxShadow(shadowP, outerHalf, sigma, outerRadii);
+
+                vec4 shadow = vec4(shadowCol.rgb * shadowCol.a * shadowValue, shadowCol.a * shadowValue);
+                outerResult = outerResult + shadow * (1.0 - outerResult.a);
+            }
         }
     }
 
@@ -160,7 +219,6 @@ void main(void) {
     color = texColor + color * (1.0 - texColor.a);
 
     // 3. Layer inset shadows on top of the texture
-    //    Standard "source over" blending
     color = vec4(
         insetResult.rgb + color.rgb * (1.0 - insetResult.a),
         insetResult.a + color.a * (1.0 - insetResult.a)

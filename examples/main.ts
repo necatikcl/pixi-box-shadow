@@ -32,6 +32,8 @@ const TEST_CASES: TestCase[] = [
   { label: 'Tailwind shadow-lg', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -4px rgba(0, 0, 0, 0.3)', borderRadius: 8, boxWidth: 160, boxHeight: 80, bgColor: '#ffffff', bgColorHex: 0xffffff },
   { label: 'Colored shadow (blue glow)', boxShadow: '0 0 30px 10px rgba(59, 130, 246, 0.5)', borderRadius: 12, boxWidth: 160, boxHeight: 80, bgColor: '#1e293b', bgColorHex: 0x1e293b },
   { label: 'Offset only, no blur/spread', boxShadow: '8px 8px 0 0 rgba(0, 0, 0, 0.8)', borderRadius: 0, boxWidth: 160, boxHeight: 80, bgColor: '#ffffff', bgColorHex: 0xffffff },
+  { label: 'Multi-color shadows', boxShadow: '-6px -6px 16px rgba(255, 0, 0, 0.5), 6px 6px 16px rgba(0, 100, 255, 0.5)', borderRadius: 12, boxWidth: 160, boxHeight: 80, bgColor: '#ffffff', bgColorHex: 0xffffff },
+  { label: 'Layered neon glow (multi-color)', boxShadow: '0 0 10px 2px rgba(255, 0, 200, 0.7), 0 0 30px 8px rgba(0, 200, 255, 0.4)', borderRadius: 12, boxWidth: 160, boxHeight: 80, bgColor: '#1e293b', bgColorHex: 0x1e293b },
 ];
 
 // ============================================================

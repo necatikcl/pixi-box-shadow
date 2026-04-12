@@ -1,6 +1,5 @@
-import { Filter, GlProgram, GpuProgram } from 'pixi.js';
+import { Filter, GlProgram, GpuProgram, TexturePool, Texture } from 'pixi.js';
 import type { FilterSystem } from 'pixi.js';
-import type { Texture } from 'pixi.js';
 import type { RenderSurface } from 'pixi.js';
 import type { BoxShadowFilterOptions, BoxShadowOptions, ShapeMode } from './types';
 import { MAX_SHADOWS } from './types';
@@ -10,6 +9,10 @@ import { calculatePadding, normalizeBorderRadius, resolveColor } from './utils';
 import vertexSrc from './shaders/box-shadow.vert?raw';
 import fragmentSrc from './shaders/box-shadow.frag?raw';
 import wgslSrc from './shaders/box-shadow.wgsl?raw';
+
+import blurVertexSrc from './shaders/alpha-blur.vert?raw';
+import blurFragmentSrc from './shaders/alpha-blur.frag?raw';
+import blurWgslSrc from './shaders/alpha-blur.wgsl?raw';
 
 /**
  * High-performance CSS box-shadow implementation for PixiJS v8.
@@ -22,7 +25,8 @@ import wgslSrc from './shaders/box-shadow.wgsl?raw';
  *
  * Two shape modes are available:
  * - `'box'` (default) — SDF rounded rectangle. Fastest.
- * - `'texture'` — reads the element's alpha channel. Supports any shape.
+ * - `'texture'` — two-pass separable Gaussian blur on the element's alpha
+ *   channel (CSS `filter: drop-shadow()` approach). Supports any shape.
  *
  * @example
  * ```typescript
@@ -56,6 +60,12 @@ export class BoxShadowFilter extends Filter {
   private _height: number = 0;
   private _shapeMode: ShapeMode;
   private _quality: number;
+
+  /**
+   * Internal filter for the 1D Gaussian blur passes (texture mode only).
+   * Created lazily on first texture-mode apply.
+   */
+  private _blurFilter: Filter | null = null;
 
   // Typed uniform accessor
   public uniforms: {
@@ -132,6 +142,9 @@ export class BoxShadowFilter extends Filter {
           uShadowColor: { value: shadowColor, type: 'vec4<f32>', size: MAX_SHADOWS },
           uShadowInset: { value: shadowInset, type: 'f32', size: MAX_SHADOWS },
         },
+        // Blurred alpha texture (texture mode only) — set dynamically in apply()
+        uBlurredAlpha: Texture.EMPTY.source,
+        uBlurredAlphaSampler: Texture.EMPTY.source.style,
       },
       padding: pad,
       resolution: 'inherit',
@@ -144,6 +157,46 @@ export class BoxShadowFilter extends Filter {
     this._quality = quality;
 
     this._updateShadowUniforms();
+  }
+
+  // ----------------------------------------------------------------
+  // Lazy blur filter creation (texture mode)
+  // ----------------------------------------------------------------
+
+  private _ensureBlurFilter(): Filter {
+    if (this._blurFilter) return this._blurFilter;
+
+    const blurGlProgram = GlProgram.from({
+      vertex: blurVertexSrc,
+      fragment: blurFragmentSrc,
+      name: 'alpha-blur-filter',
+    });
+
+    const blurGpuProgram = GpuProgram.from({
+      vertex: {
+        source: blurWgslSrc,
+        entryPoint: 'mainVertex',
+      },
+      fragment: {
+        source: blurWgslSrc,
+        entryPoint: 'mainFragment',
+      },
+    });
+
+    this._blurFilter = new Filter({
+      glProgram: blurGlProgram,
+      gpuProgram: blurGpuProgram,
+      resources: {
+        alphaBlurUniforms: {
+          uDirection: { value: new Float32Array([1, 0]), type: 'vec2<f32>' },
+          uStrength: { value: 0, type: 'f32' },
+        },
+      },
+      padding: 0,
+      resolution: 'inherit',
+    });
+
+    return this._blurFilter;
   }
 
   // ----------------------------------------------------------------
@@ -162,7 +215,78 @@ export class BoxShadowFilter extends Filter {
       this.uniforms.uElementSize[1] = h;
     }
 
+    // Box mode: single pass (analytical SDF, unchanged)
+    if (this._shapeMode !== 'texture') {
+      filterManager.applyFilter(this, input, output, clearMode);
+      return;
+    }
+
+    // Texture mode: two-pass separable Gaussian blur + composite
+    this._applyTextureMode(filterManager, input, output, clearMode);
+  }
+
+  /**
+   * Texture mode: apply two-pass separable Gaussian blur on the input
+   * alpha channel, then composite with the original texture.
+   *
+   * This replicates how CSS `filter: drop-shadow()` works in browser
+   * engines, producing mathematically correct Gaussian blur.
+   */
+  private _applyTextureMode(
+    filterManager: FilterSystem,
+    input: Texture,
+    output: RenderSurface,
+    clearMode: boolean,
+  ): void {
+    // Find the maximum sigma across all shadows that need blur
+    let maxSigma = 0;
+    for (const shadow of this._shadows) {
+      const sigma = shadow.blur * 0.5;
+      if (sigma > maxSigma) maxSigma = sigma;
+    }
+
+    // If no shadow needs blur, skip the blur passes
+    if (maxSigma < 0.5) {
+      // Set empty blurred alpha texture — shader will use original alpha
+      this.resources.uBlurredAlpha = Texture.EMPTY.source;
+      this.resources.uBlurredAlphaSampler = Texture.EMPTY.source.style;
+      filterManager.applyFilter(this, input, output, clearMode);
+      return;
+    }
+
+    const blurFilter = this._ensureBlurFilter();
+    const blurUniforms = blurFilter.resources.alphaBlurUniforms.uniforms;
+
+    // ── Pass 1: Horizontal blur ──────────────────────────────
+    const tempH = TexturePool.getSameSizeTexture(input);
+
+    blurUniforms.uDirection[0] = 1;
+    blurUniforms.uDirection[1] = 0;
+    blurUniforms.uStrength = maxSigma;
+
+    filterManager.applyFilter(blurFilter, input, tempH, true);
+
+    // ── Pass 2: Vertical blur ────────────────────────────────
+    const tempV = TexturePool.getSameSizeTexture(input);
+
+    blurUniforms.uDirection[0] = 0;
+    blurUniforms.uDirection[1] = 1;
+    // uStrength stays the same
+
+    filterManager.applyFilter(blurFilter, tempH, tempV, true);
+
+    // Return the horizontal temp immediately
+    TexturePool.returnTexture(tempH);
+
+    // ── Pass 3: Composite (main box-shadow shader) ───────────
+    // Bind the blurred alpha texture for the composite shader to read
+    this.resources.uBlurredAlpha = tempV.source;
+    this.resources.uBlurredAlphaSampler = tempV.source.style;
+
     filterManager.applyFilter(this, input, output, clearMode);
+
+    // Return the vertical temp texture to the pool
+    TexturePool.returnTexture(tempV);
   }
 
   // ----------------------------------------------------------------

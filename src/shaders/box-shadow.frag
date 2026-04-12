@@ -2,7 +2,12 @@
 //
 // Two shape modes:
 //   shapeMode 0 ('box')     — analytical SDF rounded-rectangle, O(1) per pixel
-//   shapeMode 1 ('texture') — multi-tap alpha sampling, works with any shape
+//   shapeMode 1 ('texture') — two-pass separable Gaussian blur on alpha channel
+//                              (CSS filter: drop-shadow() approach)
+//
+// In texture mode, the alpha channel is pre-blurred by the two-pass blur
+// pipeline in BoxShadowFilter.apply(). This shader reads the pre-blurred
+// alpha from the uBlurredAlpha sampler for perfect Gaussian quality.
 //
 // Compositing order (matches CSS spec):
 //   1. Outer shadows — behind the element
@@ -23,6 +28,9 @@ out vec4 finalColor;
 uniform sampler2D uTexture;
 uniform vec4 uInputSize;
 
+// Pre-blurred alpha texture (texture mode only, set by apply() pipeline)
+uniform sampler2D uBlurredAlpha;
+
 uniform vec2 uElementSize;
 uniform vec4 uBorderRadius;
 uniform vec2 uPaddingOffset;
@@ -32,8 +40,8 @@ uniform vec4 uShadowOffsetBlurSpread[8];
 uniform vec4 uShadowColor[8];
 uniform float uShadowInset[8];
 
-uniform int uShapeMode;   // 0 = box (SDF), 1 = texture (alpha sampling)
-uniform int uQuality;     // 1–5: multiplied by 16 to get sample count
+uniform int uShapeMode;   // 0 = box (SDF), 1 = texture (pre-blurred alpha)
+uniform int uQuality;     // kept for backward compat (unused in texture mode)
 
 // ============================================================
 // Fast erf approximation (Abramowitz & Stegun 7.1.26)
@@ -87,49 +95,22 @@ float roundedBoxShadow(vec2 p, vec2 halfSize, float sigma, vec4 radii) {
 }
 
 // ============================================================
-// Texture-based alpha sampling with Gaussian-weighted disc
+// Read pre-blurred alpha with spread adjustment (texture mode)
 // ============================================================
-// Golden angle in radians
-const float GOLDEN_ANGLE = 2.39996322973;
+float readBlurredAlpha(vec2 uv, float sigma, float spread) {
+    float blurred;
 
-float sampleAlphaDisc(vec2 uv, float sigma, float spread) {
-    if (sigma < 0.5 && abs(spread) < 0.5) {
-        return texture(uTexture, uv).a;
+    if (sigma < 0.5) {
+        // No blur — read original texture alpha directly
+        blurred = texture(uTexture, uv).a;
+    } else {
+        // Read from the pre-blurred alpha texture (from two-pass pipeline)
+        blurred = texture(uBlurredAlpha, uv).a;
     }
 
-    float effectiveSigma = max(sigma, 0.5);
-
-    int baseSamples = uQuality * 16;
-    float sigmaScale = clamp(effectiveSigma / 8.0, 1.0, 4.0);
-    int sampleCount = int(float(baseSamples) * sigmaScale);
-    if (sampleCount > 256) sampleCount = 256;
-
-    float totalWeight = 0.0;
-    float totalAlpha = 0.0;
-    float invSigma2 = 1.0 / (2.0 * effectiveSigma * effectiveSigma);
-    float maxR = effectiveSigma * 3.0;
-
-    float centerAlpha = texture(uTexture, uv).a;
-    float centerW = 1.0;
-    totalAlpha += centerAlpha * centerW;
-    totalWeight += centerW;
-
-    for (int i = 0; i < 256; i++) {
-        if (i >= sampleCount) break;
-        float fi = float(i) + 1.0;
-        float r = maxR * sqrt(fi / float(sampleCount + 1));
-        float theta = fi * GOLDEN_ANGLE;
-        vec2 off = vec2(cos(theta), sin(theta)) * r;
-
-        vec2 sampleUV = uv + off * uInputSize.zw;
-        float w = exp(-dot(off, off) * invSigma2);
-        totalAlpha += texture(uTexture, sampleUV).a * w;
-        totalWeight += w;
-    }
-
-    float blurred = totalAlpha / max(totalWeight, 0.001);
-
+    // Apply spread adjustment (expand/shrink the alpha mask)
     if (abs(spread) > 0.5) {
+        float effectiveSigma = max(sigma, 0.5);
         float bias = -spread / (effectiveSigma * 2.0 + 1.0);
         float scale = 1.0 + abs(spread) / (effectiveSigma + 1.0);
         blurred = clamp((blurred - 0.5 + bias) * scale + 0.5, 0.0, 1.0);
@@ -174,8 +155,13 @@ void main(void) {
         float shadowValue;
 
         if (uShapeMode == 1) {
+            // Texture mode: read pre-blurred alpha
             vec2 offsetUV = offset * uInputSize.zw;
-            float sampledAlpha = sampleAlphaDisc(vTextureCoord - offsetUV, sigma, isInset > 0.5 ? -spread : spread);
+            float sampledAlpha = readBlurredAlpha(
+                vTextureCoord - offsetUV,
+                sigma,
+                isInset > 0.5 ? -spread : spread
+            );
 
             if (isInset > 0.5) {
                 shadowValue = (1.0 - sampledAlpha) * insideElement;
@@ -190,6 +176,7 @@ void main(void) {
                 outerResult = outerResult + shadow * (1.0 - outerResult.a);
             }
         } else {
+            // Box mode: analytical SDF (unchanged)
             vec2 shadowP = p - offset;
 
             if (isInset > 0.5) {

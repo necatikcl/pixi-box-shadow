@@ -1,3 +1,14 @@
+// pixi-box-shadow — WGSL Shader (WebGPU)
+//
+// Two shape modes:
+//   shapeMode 0 ('box')     — analytical SDF rounded-rectangle, O(1) per pixel
+//   shapeMode 1 ('texture') — two-pass separable Gaussian blur on alpha channel
+//                              (CSS filter: drop-shadow() approach)
+//
+// In texture mode, the alpha channel is pre-blurred by the two-pass blur
+// pipeline in BoxShadowFilter.apply(). This shader reads the pre-blurred
+// alpha from the uBlurredAlpha texture for perfect Gaussian quality.
+
 struct GlobalFilterUniforms {
   uInputSize: vec4<f32>,
   uInputPixel: vec4<f32>,
@@ -23,7 +34,11 @@ struct BoxShadowUniforms {
 @group(0) @binding(0) var<uniform> gfu: GlobalFilterUniforms;
 @group(0) @binding(1) var uTexture: texture_2d<f32>;
 @group(0) @binding(2) var uSampler: sampler;
+
 @group(1) @binding(0) var<uniform> bsu: BoxShadowUniforms;
+// Pre-blurred alpha texture (texture mode only, set by apply() pipeline)
+@group(1) @binding(1) var uBlurredAlpha: texture_2d<f32>;
+@group(1) @binding(2) var uBlurredAlphaSampler: sampler;
 
 struct VSOutput {
   @builtin(position) position: vec4<f32>,
@@ -104,46 +119,21 @@ fn getShadowInset(index: i32) -> f32 {
   return v.w;
 }
 
-const GOLDEN_ANGLE: f32 = 2.39996322973;
+// Read pre-blurred alpha with spread adjustment (texture mode)
+fn readBlurredAlpha(uv: vec2<f32>, sigma: f32, spread: f32) -> f32 {
+  var blurred: f32;
 
-fn sampleAlphaDisc(uv: vec2<f32>, sigma: f32, spread: f32) -> f32 {
-  if (sigma < 0.5 && abs(spread) < 0.5) {
-    return textureSample(uTexture, uSampler, uv).a;
+  if (sigma < 0.5) {
+    // No blur — read original texture alpha directly
+    blurred = textureSample(uTexture, uSampler, uv).a;
+  } else {
+    // Read from the pre-blurred alpha texture (from two-pass pipeline)
+    blurred = textureSample(uBlurredAlpha, uBlurredAlphaSampler, uv).a;
   }
 
-  let effectiveSigma = max(sigma, 0.5);
-
-  let baseSamples = bsu.uQuality * 16;
-  let sigmaScale = clamp(effectiveSigma / 8.0, 1.0, 4.0);
-  var sampleCount = i32(f32(baseSamples) * sigmaScale);
-  sampleCount = min(sampleCount, 256);
-
-  var totalWeight: f32 = 0.0;
-  var totalAlpha: f32 = 0.0;
-  let invSigma2 = 1.0 / (2.0 * effectiveSigma * effectiveSigma);
-  let maxR = effectiveSigma * 3.0;
-
-  let centerAlpha = textureSample(uTexture, uSampler, uv).a;
-  let centerW: f32 = 1.0;
-  totalAlpha += centerAlpha * centerW;
-  totalWeight += centerW;
-
-  for (var i = 0; i < 256; i++) {
-    if (i >= sampleCount) { break; }
-    let fi = f32(i) + 1.0;
-    let r = maxR * sqrt(fi / f32(sampleCount + 1));
-    let theta = fi * GOLDEN_ANGLE;
-    let off = vec2<f32>(cos(theta), sin(theta)) * r;
-
-    let sampleUV = uv + off * gfu.uInputSize.zw;
-    let w = exp(-dot(off, off) * invSigma2);
-    totalAlpha += textureSample(uTexture, uSampler, sampleUV).a * w;
-    totalWeight += w;
-  }
-
-  var blurred = totalAlpha / max(totalWeight, 0.001);
-
+  // Apply spread adjustment (expand/shrink the alpha mask)
   if (abs(spread) > 0.5) {
+    let effectiveSigma = max(sigma, 0.5);
     let bias = -spread / (effectiveSigma * 2.0 + 1.0);
     let scale = 1.0 + abs(spread) / (effectiveSigma + 1.0);
     blurred = clamp((blurred - 0.5 + bias) * scale + 0.5, 0.0, 1.0);
@@ -190,6 +180,7 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
     var shadowValue: f32;
 
     if (bsu.uShapeMode == 1) {
+      // Texture mode: read pre-blurred alpha
       let offsetUV = offset * gfu.uInputSize.zw;
       var spreadArg: f32;
       if (isInset > 0.5) {
@@ -197,7 +188,7 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
       } else {
         spreadArg = spread;
       }
-      let sampledAlpha = sampleAlphaDisc(input.uv - offsetUV, sigma, spreadArg);
+      let sampledAlpha = readBlurredAlpha(input.uv - offsetUV, sigma, spreadArg);
 
       if (isInset > 0.5) {
         shadowValue = (1.0 - sampledAlpha) * insideElement;
@@ -212,6 +203,7 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
         outerResult = outerResult + shadow * (1.0 - outerResult.a);
       }
     } else {
+      // Box mode: analytical SDF (unchanged)
       let shadowP = p - offset;
 
       if (isInset > 0.5) {

@@ -193,19 +193,96 @@ function drawShapeForTestCase(gfx: Graphics, tc: TestCase): void {
 }
 
 // ============================================================
-// CSS column shape helpers (SVG for non-rect shapes)
+// CSS column shape helpers
 // ============================================================
+
+/**
+ * Convert a box-shadow CSS string into a CSS `filter` property value
+ * using `drop-shadow()` functions. Strips `inset` (not supported by
+ * drop-shadow) and the spread value (4th length, also not supported).
+ * Multiple comma-separated shadows become chained drop-shadow() calls.
+ */
+function boxShadowToDropShadow(boxShadow: string): string {
+  // Split on top-level commas (respecting parentheses)
+  const parts: string[] = [];
+  let depth = 0, start = 0;
+  for (let i = 0; i < boxShadow.length; i++) {
+    const ch = boxShadow[i];
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    else if (ch === ',' && depth === 0) {
+      parts.push(boxShadow.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  const last = boxShadow.slice(start).trim();
+  if (last.length > 0) parts.push(last);
+
+  const filters: string[] = [];
+  for (const part of parts) {
+    // Strip inset keyword
+    const clean = part.replace(/\binset\b/gi, '').trim();
+    // Match: offsetX offsetY blur [spread] color
+    const m = clean.match(
+      /^([-\d.]+px)\s+([-\d.]+px)\s+([-\d.]+px)\s*(?:[-\d.]+px\s+)?(rgba?\([^)]+\)|hsla?\([^)]+\)|#[a-fA-F0-9]{3,8}|\w+)$/
+    );
+    if (m) {
+      filters.push(`drop-shadow(${m[1]} ${m[2]} ${m[3]} ${m[4]})`);
+    }
+  }
+
+  return filters.join(' ');
+}
+
+/**
+ * Build the SVG markup for a given non-rect shape (no shadow filter —
+ * the CSS `filter: drop-shadow()` is applied on the wrapping HTML element).
+ */
+function buildShapeSVG(shape: string, size: number, fill: string): string {
+  const s = size;
+  let content = '';
+  switch (shape) {
+    case 'star':
+      content = `<polygon points="40,5 50,30 78,30 55,47 63,75 40,58 17,75 25,47 2,30 30,30" fill="${fill}"/>`;
+      break;
+    case 'diamond':
+      content = `<polygon points="${s / 2},0 ${s},${s / 2} ${s / 2},${s} 0,${s / 2}" fill="${fill}"/>`;
+      break;
+    case 'triangle':
+      content = `<polygon points="${s / 2},0 ${s},${s} 0,${s}" fill="${fill}"/>`;
+      break;
+    case 'hexagon': {
+      const r = 38, cx = s / 2, cy = s / 2;
+      const pts = Array.from({ length: 6 }, (_, i) => {
+        const a = -Math.PI / 2 + i * Math.PI / 3;
+        return `${cx + r * Math.cos(a)},${cy + r * Math.sin(a)}`;
+      }).join(' ');
+      content = `<polygon points="${pts}" fill="${fill}"/>`;
+      break;
+    }
+    case 'cross': {
+      const t = 24, off = (s - t) / 2;
+      content = `<polygon points="${off},0 ${off + t},0 ${off + t},${off} ${s},${off} ${s},${off + t} ${off + t},${off + t} ${off + t},${s} ${off},${s} ${off},${off + t} 0,${off + t} 0,${off} ${off},${off}" fill="${fill}"/>`;
+      break;
+    }
+    case 'heart':
+      content = `<path d="M${s / 2},${s * 0.9} C${s * 0.05},${s * 0.55} ${s * 0.05},${s * 0.15} ${s / 2},${s * 0.3} C${s * 0.95},${s * 0.15} ${s * 0.95},${s * 0.55} ${s / 2},${s * 0.9}Z" fill="${fill}"/>`;
+      break;
+  }
+  return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}">${content}</svg>`;
+}
 
 function createCSSElement(tc: TestCase): HTMLElement {
   const shape = tc.drawShape ?? 'rect';
 
+  // ── Non-rect shapes: use CSS filter: drop-shadow() ─────────
   if (shape === 'circle') {
     const el = document.createElement('div');
     el.style.width = `${tc.boxWidth}px`;
     el.style.height = `${tc.boxHeight}px`;
     el.style.background = tc.bgColor;
     el.style.borderRadius = '50%';
-    el.style.boxShadow = tc.boxShadow;
+    el.style.filter = boxShadowToDropShadow(tc.boxShadow);
     return el;
   }
 
@@ -216,51 +293,15 @@ function createCSSElement(tc: TestCase): HTMLElement {
     wrap.style.display = 'flex';
     wrap.style.alignItems = 'center';
     wrap.style.justifyContent = 'center';
-
-    const s = tc.boxWidth;
-    let svgContent = '';
-    const fill = tc.bgColor;
-
-    switch (shape) {
-      case 'star':
-        svgContent = `<polygon points="40,5 50,30 78,30 55,47 63,75 40,58 17,75 25,47 2,30 30,30" fill="${fill}"/>`;
-        break;
-      case 'diamond':
-        svgContent = `<polygon points="${s / 2},0 ${s},${s / 2} ${s / 2},${s} 0,${s / 2}" fill="${fill}"/>`;
-        break;
-      case 'triangle':
-        svgContent = `<polygon points="${s / 2},0 ${s},${s} 0,${s}" fill="${fill}"/>`;
-        break;
-      case 'hexagon': {
-        const r = 38, cx = s / 2, cy = s / 2;
-        const pts = Array.from({ length: 6 }, (_, i) => {
-          const a = -Math.PI / 2 + i * Math.PI / 3;
-          return `${cx + r * Math.cos(a)},${cy + r * Math.sin(a)}`;
-        }).join(' ');
-        svgContent = `<polygon points="${pts}" fill="${fill}"/>`;
-        break;
-      }
-      case 'cross': {
-        const t = 24, off = (s - t) / 2;
-        svgContent = `<polygon points="${off},0 ${off + t},0 ${off + t},${off} ${s},${off} ${s},${off + t} ${off + t},${off + t} ${off + t},${s} ${off},${s} ${off},${off + t} 0,${off + t} 0,${off} ${off},${off}" fill="${fill}"/>`;
-        break;
-      }
-      case 'heart':
-        svgContent = `<path d="M${s / 2},${s * 0.9} C${s * 0.05},${s * 0.55} ${s * 0.05},${s * 0.15} ${s / 2},${s * 0.3} C${s * 0.95},${s * 0.15} ${s * 0.95},${s * 0.55} ${s / 2},${s * 0.9}Z" fill="${fill}"/>`;
-        break;
-    }
-
-    const dropShadow = tc.boxShadow.replace(/inset\s*/g, '');
-    const match = dropShadow.match(/([-\d.]+)px\s+([-\d.]+)px\s+([-\d.]+)px\s*(?:[-\d.]+px\s+)?(rgba?\([^)]+\)|#[a-fA-F0-9]+|\w+)/);
-    let filterAttr = '';
-    if (match) {
-      filterAttr = `filter="drop-shadow(${match[1]}px ${match[2]}px ${match[3]}px ${match[4]})"`;
-    }
-
-    wrap.innerHTML = `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><g ${filterAttr}>${svgContent}</g></svg>`;
+    // CSS filter: drop-shadow() on the wrapper traces the alpha contour
+    // of the SVG content — this is the proper CSS comparison for our
+    // texture-mode two-pass Gaussian blur.
+    wrap.style.filter = boxShadowToDropShadow(tc.boxShadow);
+    wrap.innerHTML = buildShapeSVG(shape, tc.boxWidth, tc.bgColor);
     return wrap;
   }
 
+  // ── Rect shapes: use standard CSS box-shadow ───────────────
   const cssRadiusStr = Array.isArray(tc.borderRadius)
     ? tc.borderRadius.map((r: number) => `${r}px`).join(' ')
     : `${tc.borderRadius}px`;
@@ -327,7 +368,8 @@ async function initVisualTab() {
 
     const label = document.createElement('div');
     label.className = 'test-label';
-    label.textContent = `${tc.label}\n${tc.boxShadow}`;
+    const cssMethod = (tc.shapeMode === 'texture') ? 'filter: drop-shadow()' : 'box-shadow';
+    label.textContent = `${tc.label}\n${tc.boxShadow}\n[CSS: ${cssMethod}]`;
     cell.appendChild(label);
 
     cell.appendChild(createCSSElement(tc));

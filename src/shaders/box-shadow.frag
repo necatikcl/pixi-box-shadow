@@ -102,7 +102,7 @@ float sampleAlphaDisc(vec2 uv, float sigma, float spread) {
     int baseSamples = uQuality * 16;
     float sigmaScale = clamp(effectiveSigma / 8.0, 1.0, 4.0);
     int sampleCount = int(float(baseSamples) * sigmaScale);
-    sampleCount = min(sampleCount, 256);
+    if (sampleCount > 256) sampleCount = 256;
 
     float totalWeight = 0.0;
     float totalAlpha = 0.0;

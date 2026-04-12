@@ -27,10 +27,10 @@ export interface BoxShadowOptions {
  *   best performance. Requires the element to be rectangular (optionally
  *   with rounded corners via `borderRadius`).
  *
- * - `'texture'` — Samples the element's actual alpha channel to derive the
- *   shadow shape. Works with any shape (circles, stars, sprites, text, etc.)
- *   but costs more per pixel due to multi-tap texture sampling. The number
- *   of samples is controlled by `quality`.
+ * - `'texture'` — Uses the element's actual alpha channel to derive the
+ *   shadow shape via a two-pass separable Gaussian blur (the same approach
+ *   CSS `filter: drop-shadow()` uses). Works with any shape (circles, stars,
+ *   sprites, text, etc.) with mathematically correct Gaussian blur quality.
  */
 export type ShapeMode = 'box' | 'texture';
 
@@ -62,28 +62,20 @@ export interface BoxShadowFilterOptions {
    * How the shadow shape is computed.
    *
    * - `'box'` (default) — analytical SDF rounded-rectangle. O(1) per pixel.
-   * - `'texture'` — samples the element's alpha channel. Works with any
-   *   shape but uses more GPU texture reads.
+   * - `'texture'` — two-pass separable Gaussian blur on the element's alpha
+   *   channel (CSS `filter: drop-shadow()` approach). Works with any shape.
    *
    * @default 'box'
    */
   shapeMode?: ShapeMode;
 
   /**
-   * Base sample quality when `shapeMode` is `'texture'`.
-   * Higher values produce smoother shadows at the cost of performance.
-   * The actual sample count scales automatically with blur radius for
-   * consistent quality at all blur sizes.
+   * Reserved for future use. Currently has no visual effect.
    *
-   * Range: 1–5.
-   * - 1 → 16 base samples (fast preview)
-   * - 2 → 32 base samples
-   * - 3 → 48 base samples (default, recommended)
-   * - 4 → 64 base samples (high quality)
-   * - 5 → 80 base samples (maximum quality)
-   *
-   * For large blurs (sigma > 8px) the sample count is automatically
-   * increased up to 4x to maintain quality. Maximum 256 samples.
+   * The texture-mode blur quality is now inherently high: the two-pass
+   * separable Gaussian blur covers 3σ in each direction, capturing 99.7%
+   * of the Gaussian energy — producing mathematically correct results at
+   * any blur radius.
    *
    * Ignored when `shapeMode` is `'box'`.
    * @default 3

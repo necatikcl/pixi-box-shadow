@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pixi-box-shadow — CSS vs PixiJS Side-by-Side</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #ffffff;
+      color: #333;
+      min-height: 100vh;
+    }
+    h1 {
+      text-align: center;
+      padding: 24px 0 8px;
+      font-size: 28px;
+      font-weight: 300;
+      letter-spacing: 2px;
+      color: #111;
+    }
+    .subtitle {
+      text-align: center;
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+
+    /* Tab navigation */
+    .tabs {
+      display: flex;
+      justify-content: center;
+      gap: 0;
+      margin-bottom: 24px;
+    }
+    .tab-btn {
+      padding: 10px 32px;
+      font-size: 15px;
+      font-weight: 600;
+      border: 2px solid #ccc;
+      background: transparent;
+      color: #888;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+    .tab-btn:first-child { border-radius: 8px 0 0 8px; }
+    .tab-btn:last-child { border-radius: 0 8px 8px 0; }
+    .tab-btn.active {
+      background: #f0f4ff;
+      color: #1a56db;
+      border-color: #1a56db;
+    }
+    .tab-btn:hover:not(.active) { background: #f5f5f5; color: #555; }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* Sub-tabs for perf */
+    .sub-tabs {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .sub-tab-btn {
+      padding: 6px 20px;
+      font-size: 13px;
+      border: 1px solid #ccc;
+      border-radius: 20px;
+      background: transparent;
+      color: #888;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+    .sub-tab-btn.active {
+      background: #e8f5e9;
+      color: #2e7d32;
+      border-color: #2e7d32;
+    }
+
+    /* Column layout for comparison */
+    .comparison {
+      display: flex;
+      max-width: 1400px;
+      margin: 0 auto;
+      gap: 0;
+    }
+    .column {
+      flex: 1;
+      min-width: 0;
+    }
+    .column-header {
+      text-align: center;
+      font-size: 18px;
+      font-weight: 600;
+      padding: 12px;
+      border-bottom: 2px solid #ddd;
+      position: sticky;
+      top: 0;
+      background: #ffffff;
+      z-index: 10;
+    }
+    .column-header.css { color: #1565c0; }
+    .column-header.pixi { color: #2e7d32; }
+    .test-cell {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid #e0e0e0;
+      min-height: 200px;
+      justify-content: center;
+    }
+    .css-column .test-cell {
+      border-right: 1px solid #e0e0e0;
+    }
+    .test-label {
+      font-size: 11px;
+      color: #777;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      text-align: center;
+      max-width: 350px;
+      word-break: break-all;
+      white-space: pre-wrap;
+    }
+    .pixi-column canvas {
+      display: block;
+      margin: 0 auto;
+    }
+
+    /* Perf layout */
+    .perf-single {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+    .perf-box-container {
+      width: 400px;
+      height: 280px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    .fps-counter {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 14px;
+      color: #2e7d32;
+      text-align: center;
+      margin-top: 12px;
+      min-height: 24px;
+    }
+    .perf-note {
+      text-align: center;
+      color: #999;
+      font-size: 12px;
+      margin-top: 16px;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+      line-height: 1.6;
+    }
+    .perf-controls {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 24px;
+    }
+    .perf-ctrl-btn {
+      padding: 10px 24px;
+      font-size: 14px;
+      font-weight: 600;
+      border: 2px solid #ccc;
+      border-radius: 8px;
+      background: #fff;
+      color: #555;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: inherit;
+      min-width: 180px;
+    }
+    .perf-ctrl-btn:hover { background: #f5f5f5; border-color: #999; }
+    .perf-ctrl-btn.paused {
+      background: #e8f5e9;
+      color: #2e7d32;
+      border-color: #2e7d32;
+    }
+    .sub-content { display: none; }
+    .sub-content.active { display: block; }
+  </style>
+</head>
+<body>
+  <h1>pixi-box-shadow</h1>
+  <p class="subtitle">SDF Analytical Gaussian Blur — CSS vs PixiJS v8 Side-by-Side Comparison</p>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="visual">Visual</button>
+    <button class="tab-btn" data-tab="perf">Performance</button>
+  </div>
+
+  <!-- Visual Tab -->
+  <div class="tab-content active" id="tab-visual">
+    <div class="comparison">
+      <div class="column css-column" id="css-column">
+        <div class="column-header css">CSS (native)</div>
+      </div>
+      <div class="column pixi-column" id="pixi-column">
+        <div class="column-header pixi">PixiJS (SDF shader)</div>
+        <div id="pixi-canvas-wrap" style="position: relative;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Performance Tab -->
+  <div class="tab-content" id="tab-perf">
+    <div class="sub-tabs">
+      <button class="sub-tab-btn active" data-subtab="color">Shadow Color Transition</button>
+      <button class="sub-tab-btn" data-subtab="size">Element Size Transition</button>
+    </div>
+
+    <div class="sub-content active" id="subtab-color">
+      <div class="perf-single">
+        <div class="perf-box-container" id="perf-pixi-color-container"></div>
+        <div class="fps-counter" id="fps-pixi-color">–</div>
+      </div>
+      <p class="perf-note">Shadow color transitions from red → blue → red every frame. Measures cost of dynamic shadow property updates.</p>
+    </div>
+
+    <div class="sub-content" id="subtab-size">
+      <div class="perf-single">
+        <div class="perf-box-container" id="perf-pixi-size-container"></div>
+        <div class="fps-counter" id="fps-pixi-size">–</div>
+      </div>
+      <p class="perf-note">Element width/height animating continuously. Measures cost of geometry changes that require shadow recalculation.</p>
+    </div>
+
+    <div class="perf-controls">
+      <button class="perf-ctrl-btn" id="btn-toggle-animation">⏸ Pause Animation</button>
+      <button class="perf-ctrl-btn" id="btn-toggle-canvas">⏸ Pause Canvas</button>
+    </div>
+    <p class="perf-note" style="margin-top: 8px;">
+      <strong>Pause Animation</strong> — ticker keeps running (re-renders every frame) but nothing changes. Tests idle/cache cost.<br>
+      <strong>Pause Canvas</strong> — stops the ticker entirely. Zero GPU work.
+    </p>
+  </div>
+
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

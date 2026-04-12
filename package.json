@@ -1,0 +1,44 @@
+{
+  "name": "pixi-box-shadow",
+  "version": "1.0.0",
+  "description": "High-performance CSS box-shadow implementation for PixiJS v8 using SDF analytical Gaussian blur",
+  "type": "module",
+  "main": "dist/pixi-box-shadow.cjs",
+  "module": "dist/pixi-box-shadow.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/pixi-box-shadow.mjs",
+      "require": "./dist/pixi-box-shadow.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "vite serve examples",
+    "build": "vite build && tsc --emitDeclarationOnly",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "pixi",
+    "pixijs",
+    "box-shadow",
+    "shadow",
+    "filter",
+    "webgl",
+    "webgpu",
+    "sdf"
+  ],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "pixi.js": ">=8.0.0"
+  },
+  "devDependencies": {
+    "pixi.js": "^8.17.1",
+    "typescript": "^5.5.0",
+    "vite": "^6.0.0"
+  }
+}

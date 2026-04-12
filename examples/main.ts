@@ -231,7 +231,10 @@ function boxShadowToDropShadow(boxShadow: string): string {
       // Ensure px suffix for drop-shadow (required by spec)
       const offsetX = m[1].endsWith('px') ? m[1] : m[1] + 'px';
       const offsetY = m[2].endsWith('px') ? m[2] : m[2] + 'px';
-      const blur = m[3].endsWith('px') ? m[3] : m[3] + 'px';
+      // CSS box-shadow blur = 2σ, but drop-shadow blur = σ (stdDeviation).
+      // Halve the blur value so both produce the same visual result.
+      const rawBlur = parseFloat(m[3]);
+      const blur = `${rawBlur / 2}px`;
       filters.push(`drop-shadow(${offsetX} ${offsetY} ${blur} ${m[4]})`);
     }
   }

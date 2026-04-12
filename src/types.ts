@@ -21,6 +21,20 @@ export interface BoxShadowOptions {
 }
 
 /**
+ * Shadow shape computation mode.
+ *
+ * - `'box'` (default) — Uses SDF of a rounded rectangle. O(1) per pixel,
+ *   best performance. Requires the element to be rectangular (optionally
+ *   with rounded corners via `borderRadius`).
+ *
+ * - `'texture'` — Samples the element's actual alpha channel to derive the
+ *   shadow shape. Works with any shape (circles, stars, sprites, text, etc.)
+ *   but costs more per pixel due to multi-tap texture sampling. The number
+ *   of samples is controlled by `quality`.
+ */
+export type ShapeMode = 'box' | 'texture';
+
+/**
  * Options for the BoxShadowFilter constructor.
  */
 export interface BoxShadowFilterOptions {
@@ -37,7 +51,7 @@ export interface BoxShadowFilterOptions {
   boxShadow?: string;
 
   /**
-   * Corner radii in pixels.
+   * Corner radii in pixels (only used when `shapeMode` is `'box'`).
    * - A single number applies to all corners.
    * - An array of 4 numbers: [top-left, top-right, bottom-right, bottom-left].
    * @default 0
@@ -45,14 +59,36 @@ export interface BoxShadowFilterOptions {
   borderRadius?: number | [number, number, number, number];
 
   /**
-   * Element width in pixels. Required for SDF computation.
+   * How the shadow shape is computed.
+   *
+   * - `'box'` (default) — analytical SDF rounded-rectangle. O(1) per pixel.
+   * - `'texture'` — samples the element's alpha channel. Works with any
+   *   shape but uses more GPU texture reads.
+   *
+   * @default 'box'
    */
-  width: number;
+  shapeMode?: ShapeMode;
 
   /**
-   * Element height in pixels. Required for SDF computation.
+   * Base sample quality when `shapeMode` is `'texture'`.
+   * Higher values produce smoother shadows at the cost of performance.
+   * The actual sample count scales automatically with blur radius for
+   * consistent quality at all blur sizes.
+   *
+   * Range: 1–5.
+   * - 1 → 16 base samples (fast preview)
+   * - 2 → 32 base samples
+   * - 3 → 48 base samples (default, recommended)
+   * - 4 → 64 base samples (high quality)
+   * - 5 → 80 base samples (maximum quality)
+   *
+   * For large blurs (sigma > 8px) the sample count is automatically
+   * increased up to 4x to maintain quality. Maximum 256 samples.
+   *
+   * Ignored when `shapeMode` is `'box'`.
+   * @default 3
    */
-  height: number;
+  quality?: number;
 }
 
 /** Maximum number of shadows supported in a single filter pass. */

@@ -12,9 +12,9 @@ struct BoxShadowUniforms {
   uPaddingOffset: vec2<f32>,
   uBorderRadius: vec4<f32>,
   uShadowCount: i32,
+  uShapeMode: i32,
+  uQuality: i32,
   _pad0: i32,
-  _pad1: i32,
-  _pad2: i32,
   uShadowOffsetBlurSpread: array<vec4<f32>, 8>,
   uShadowColor: array<vec4<f32>, 8>,
   uShadowInset: array<vec4<f32>, 2>,
@@ -104,6 +104,54 @@ fn getShadowInset(index: i32) -> f32 {
   return v.w;
 }
 
+const GOLDEN_ANGLE: f32 = 2.39996322973;
+
+fn sampleAlphaDisc(uv: vec2<f32>, sigma: f32, spread: f32) -> f32 {
+  if (sigma < 0.5 && abs(spread) < 0.5) {
+    return textureSample(uTexture, uSampler, uv).a;
+  }
+
+  let effectiveSigma = max(sigma, 0.5);
+
+  let baseSamples = bsu.uQuality * 16;
+  let sigmaScale = clamp(effectiveSigma / 8.0, 1.0, 4.0);
+  var sampleCount = i32(f32(baseSamples) * sigmaScale);
+  sampleCount = min(sampleCount, 256);
+
+  var totalWeight: f32 = 0.0;
+  var totalAlpha: f32 = 0.0;
+  let invSigma2 = 1.0 / (2.0 * effectiveSigma * effectiveSigma);
+  let maxR = effectiveSigma * 3.0;
+
+  let centerAlpha = textureSample(uTexture, uSampler, uv).a;
+  let centerW: f32 = 1.0;
+  totalAlpha += centerAlpha * centerW;
+  totalWeight += centerW;
+
+  for (var i = 0; i < 256; i++) {
+    if (i >= sampleCount) { break; }
+    let fi = f32(i) + 1.0;
+    let r = maxR * sqrt(fi / f32(sampleCount + 1));
+    let theta = fi * GOLDEN_ANGLE;
+    let off = vec2<f32>(cos(theta), sin(theta)) * r;
+
+    let sampleUV = uv + off * gfu.uInputSize.zw;
+    let w = exp(-dot(off, off) * invSigma2);
+    totalAlpha += textureSample(uTexture, uSampler, sampleUV).a * w;
+    totalWeight += w;
+  }
+
+  var blurred = totalAlpha / max(totalWeight, 0.001);
+
+  if (abs(spread) > 0.5) {
+    let bias = -spread / (effectiveSigma * 2.0 + 1.0);
+    let scale = 1.0 + abs(spread) / (effectiveSigma + 1.0);
+    blurred = clamp((blurred - 0.5 + bias) * scale + 0.5, 0.0, 1.0);
+  }
+
+  return blurred;
+}
+
 @fragment
 fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
   let texColor = textureSample(uTexture, uSampler, input.uv);
@@ -117,7 +165,12 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
   let baseRadii = min(bsu.uBorderRadius, vec4<f32>(maxR));
 
   let elementSDF = sdRoundedBox(p, halfSize, baseRadii);
-  let insideElement = 1.0 - smoothstep(-0.5, 0.5, elementSDF);
+  var insideElement: f32;
+  if (bsu.uShapeMode == 1) {
+    insideElement = texColor.a;
+  } else {
+    insideElement = 1.0 - smoothstep(-0.5, 0.5, elementSDF);
+  }
 
   var outerResult = vec4<f32>(0.0);
   var insetResult = vec4<f32>(0.0);
@@ -133,25 +186,50 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
     let isInset = getShadowInset(i);
 
     let sigma = blur * 0.5;
-    let shadowP = p - offset;
 
     var shadowValue: f32;
 
-    if (isInset > 0.5) {
-      let insetHalf = max(halfSize - spread, vec2<f32>(0.001));
-      let insetRadii = clamp(baseRadii - spread, vec4<f32>(0.0), vec4<f32>(min(insetHalf.x, insetHalf.y)));
-      let inner = roundedBoxShadow(shadowP, insetHalf, sigma, insetRadii);
-      shadowValue = (1.0 - inner) * insideElement;
+    if (bsu.uShapeMode == 1) {
+      let offsetUV = offset * gfu.uInputSize.zw;
+      var spreadArg: f32;
+      if (isInset > 0.5) {
+        spreadArg = -spread;
+      } else {
+        spreadArg = spread;
+      }
+      let sampledAlpha = sampleAlphaDisc(input.uv - offsetUV, sigma, spreadArg);
+
+      if (isInset > 0.5) {
+        shadowValue = (1.0 - sampledAlpha) * insideElement;
+      } else {
+        shadowValue = sampledAlpha;
+      }
 
       let shadow = vec4<f32>(shadowCol.rgb * shadowCol.a * shadowValue, shadowCol.a * shadowValue);
-      insetResult = insetResult + shadow * (1.0 - insetResult.a);
+      if (isInset > 0.5) {
+        insetResult = insetResult + shadow * (1.0 - insetResult.a);
+      } else {
+        outerResult = outerResult + shadow * (1.0 - outerResult.a);
+      }
     } else {
-      let outerHalf = max(halfSize + spread, vec2<f32>(0.001));
-      let outerRadii = clamp(baseRadii + spread, vec4<f32>(0.0), vec4<f32>(min(outerHalf.x, outerHalf.y)));
-      shadowValue = roundedBoxShadow(shadowP, outerHalf, sigma, outerRadii);
+      let shadowP = p - offset;
 
-      let shadow = vec4<f32>(shadowCol.rgb * shadowCol.a * shadowValue, shadowCol.a * shadowValue);
-      outerResult = outerResult + shadow * (1.0 - outerResult.a);
+      if (isInset > 0.5) {
+        let insetHalf = max(halfSize - spread, vec2<f32>(0.001));
+        let insetRadii = clamp(baseRadii - spread, vec4<f32>(0.0), vec4<f32>(min(insetHalf.x, insetHalf.y)));
+        let inner = roundedBoxShadow(shadowP, insetHalf, sigma, insetRadii);
+        shadowValue = (1.0 - inner) * insideElement;
+
+        let shadow = vec4<f32>(shadowCol.rgb * shadowCol.a * shadowValue, shadowCol.a * shadowValue);
+        insetResult = insetResult + shadow * (1.0 - insetResult.a);
+      } else {
+        let outerHalf = max(halfSize + spread, vec2<f32>(0.001));
+        let outerRadii = clamp(baseRadii + spread, vec4<f32>(0.0), vec4<f32>(min(outerHalf.x, outerHalf.y)));
+        shadowValue = roundedBoxShadow(shadowP, outerHalf, sigma, outerRadii);
+
+        let shadow = vec4<f32>(shadowCol.rgb * shadowCol.a * shadowValue, shadowCol.a * shadowValue);
+        outerResult = outerResult + shadow * (1.0 - outerResult.a);
+      }
     }
   }
 

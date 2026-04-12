@@ -223,11 +223,16 @@ function boxShadowToDropShadow(boxShadow: string): string {
     // Strip inset keyword
     const clean = part.replace(/\binset\b/gi, '').trim();
     // Match: offsetX offsetY blur [spread] color
+    // Length values can be "0", "4px", "-1px", etc. (bare 0 is valid CSS)
     const m = clean.match(
-      /^([-\d.]+px)\s+([-\d.]+px)\s+([-\d.]+px)\s*(?:[-\d.]+px\s+)?(rgba?\([^)]+\)|hsla?\([^)]+\)|#[a-fA-F0-9]{3,8}|\w+)$/
+      /^([-\d.]+(?:px)?)\s+([-\d.]+(?:px)?)\s+([-\d.]+(?:px)?)\s*(?:[-\d.]+(?:px)?\s+)?(rgba?\([^)]+\)|hsla?\([^)]+\)|#[a-fA-F0-9]{3,8}|\w+)$/
     );
     if (m) {
-      filters.push(`drop-shadow(${m[1]} ${m[2]} ${m[3]} ${m[4]})`);
+      // Ensure px suffix for drop-shadow (required by spec)
+      const offsetX = m[1].endsWith('px') ? m[1] : m[1] + 'px';
+      const offsetY = m[2].endsWith('px') ? m[2] : m[2] + 'px';
+      const blur = m[3].endsWith('px') ? m[3] : m[3] + 'px';
+      filters.push(`drop-shadow(${offsetX} ${offsetY} ${blur} ${m[4]})`);
     }
   }
 

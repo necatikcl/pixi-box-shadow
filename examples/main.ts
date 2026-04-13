@@ -1,3 +1,4 @@
+import { animate } from 'motion';
 import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
 import { BoxShadowFilter } from '../src/index';
 
@@ -61,9 +62,15 @@ const TEST_CASES: TestCase[] = [
 // Shape drawing helpers
 // ============================================================
 
-const ROW_HEIGHT = 200;
+const DEMO_ROW_MIN_PX = 200;
+/** Must match `.test-cell` padding-top and padding-bottom in `index.html`. */
+const TEST_CELL_PAD_Y = 24;
+const LABEL_DEMO_GAP_PX = 14;
 const CANVAS_WIDTH = 400;
-const CANVAS_HEIGHT = ROW_HEIGHT * TEST_CASES.length;
+const PERF_VIEW_W = 400;
+const PERF_VIEW_H = 280;
+
+const TAB_SPRING = { type: 'spring' as const, stiffness: 460, damping: 38 };
 
 function drawRoundedRect(
   gfx: Graphics, w: number, h: number,
@@ -323,6 +330,106 @@ function createCSSElement(tc: TestCase): HTMLElement {
   return el;
 }
 
+interface LabelParts {
+  title: string;
+  shadow: string;
+  tagCss: string;
+  tagPixi: string;
+}
+
+function buildLabelParts(tc: TestCase): LabelParts {
+  const isTexture = tc.shapeMode === 'texture';
+  const hasInset = tc.boxShadow.includes('inset');
+  let cssNote = isTexture ? 'filter: drop-shadow()' : 'box-shadow';
+  if (isTexture && hasInset) {
+    cssNote += ' (inset not supported — showing outer)';
+  }
+  return {
+    title: tc.label,
+    shadow: tc.boxShadow,
+    tagCss: `[CSS: ${cssNote}]`,
+    tagPixi: `[PixiJS: ${cssNote}]`,
+  };
+}
+
+const LABEL_WRAP_PX = 360;
+const LABEL_BLOCK_GAP_PX = 4;
+
+function createPixiLabelBlock(tc: TestCase, canvasWidth: number): Container {
+  const parts = buildLabelParts(tc);
+  const titleStyle = new TextStyle({
+    fontFamily: 'Geist, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
+    fontSize: 12,
+    fontWeight: 500,
+    fill: '#000000',
+    align: 'center',
+    lineHeight: 18,
+    letterSpacing: 0,
+    wordWrap: true,
+    wordWrapWidth: LABEL_WRAP_PX,
+  });
+  const shadowStyle = new TextStyle({
+    fontFamily: '"Geist Mono", ui-monospace, monospace',
+    fontSize: 12,
+    fontWeight: 400,
+    fill: '#666666',
+    align: 'center',
+    lineHeight: 18,
+    letterSpacing: 0,
+    wordWrap: true,
+    wordWrapWidth: LABEL_WRAP_PX,
+  });
+  const tagStyle = new TextStyle({
+    fontFamily: '"Geist Mono", ui-monospace, monospace',
+    fontSize: 11,
+    fontWeight: 400,
+    fill: '#888888',
+    align: 'center',
+    lineHeight: 16,
+    letterSpacing: 0,
+    wordWrap: true,
+    wordWrapWidth: LABEL_WRAP_PX,
+  });
+
+  const title = new Text({ text: parts.title, style: titleStyle });
+  const shadow = new Text({ text: parts.shadow, style: shadowStyle });
+  const tag = new Text({ text: parts.tagPixi, style: tagStyle });
+
+  const block = new Container();
+  const cx = canvasWidth / 2;
+  const lines = [title, shadow, tag];
+  let y = 0;
+  lines.forEach((t, i) => {
+    t.anchor.set(0.5, 0);
+    t.x = cx;
+    t.y = y;
+    block.addChild(t);
+    y += t.height;
+    if (i < lines.length - 1) y += LABEL_BLOCK_GAP_PX;
+  });
+
+  return block;
+}
+
+function syncSegmentIndicator(
+  indicator: HTMLElement,
+  btn: HTMLButtonElement | null,
+  useMotion: boolean,
+) {
+  if (!btn) return;
+  const next = {
+    left: `${btn.offsetLeft}px`,
+    top: `${btn.offsetTop}px`,
+    width: `${btn.offsetWidth}px`,
+    height: `${btn.offsetHeight}px`,
+  };
+  if (useMotion) {
+    animate(indicator, next, TAB_SPRING);
+  } else {
+    Object.assign(indicator.style, next);
+  }
+}
+
 // ============================================================
 // Tab management
 // ============================================================
@@ -330,18 +437,46 @@ function createCSSElement(tc: TestCase): HTMLElement {
 function setupTabs() {
   const tabBtns = document.querySelectorAll<HTMLButtonElement>('.tab-btn');
   const tabContents = document.querySelectorAll<HTMLElement>('.tab-content');
+  const mainInd = document.getElementById('main-tab-indicator')!;
+  const subInd = document.getElementById('sub-tab-indicator')!;
+  const perfPanel = document.getElementById('tab-perf')!;
+
+  const refreshIndicators = (useMotion: boolean) => {
+    syncSegmentIndicator(mainInd, document.querySelector<HTMLButtonElement>('.tab-btn.active'), useMotion);
+    if (!perfPanel.hidden) {
+      syncSegmentIndicator(subInd, document.querySelector<HTMLButtonElement>('.sub-tab-btn.active'), useMotion);
+    }
+  };
+
+  const activateMainTab = (tabId: string) => {
+    tabBtns.forEach(b => {
+      const on = b.dataset.tab === tabId;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', String(on));
+    });
+    tabContents.forEach(c => {
+      const on = c.id === `tab-${tabId}`;
+      c.classList.toggle('active', on);
+      if (on) {
+        c.removeAttribute('hidden');
+        c.inert = false;
+      } else {
+        c.setAttribute('hidden', '');
+        c.inert = true;
+      }
+    });
+  };
 
   tabBtns.forEach(btn => {
     btn.addEventListener('click', () => {
-      tabBtns.forEach(b => b.classList.remove('active'));
-      tabContents.forEach(c => c.classList.remove('active'));
-      btn.classList.add('active');
-      const tab = document.getElementById(`tab-${btn.dataset.tab}`)!;
-      tab.classList.add('active');
+      const tabId = btn.dataset.tab!;
+      activateMainTab(tabId);
+      refreshIndicators(true);
 
-      if (btn.dataset.tab === 'perf') {
+      if (tabId === 'perf') {
         visualApp?.stop();
         startPerfAnimations();
+        requestAnimationFrame(() => refreshIndicators(false));
       } else {
         stopPerfAnimations();
         visualApp?.start();
@@ -352,15 +487,43 @@ function setupTabs() {
   const subBtns = document.querySelectorAll<HTMLButtonElement>('.sub-tab-btn');
   const subContents = document.querySelectorAll<HTMLElement>('.sub-content');
 
+  const activateSubTab = (subId: string) => {
+    subBtns.forEach(b => {
+      const on = b.dataset.subtab === subId;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', String(on));
+    });
+    subContents.forEach(c => {
+      const on = c.id === `subtab-${subId}`;
+      c.classList.toggle('active', on);
+      if (on) {
+        c.removeAttribute('hidden');
+        c.inert = false;
+      } else {
+        c.setAttribute('hidden', '');
+        c.inert = true;
+      }
+    });
+  };
+
   subBtns.forEach(btn => {
     btn.addEventListener('click', () => {
-      subBtns.forEach(b => b.classList.remove('active'));
-      subContents.forEach(c => c.classList.remove('active'));
-      btn.classList.add('active');
-      const sub = document.getElementById(`subtab-${btn.dataset.subtab}`)!;
-      sub.classList.add('active');
+      activateSubTab(btn.dataset.subtab!);
+      refreshIndicators(true);
     });
   });
+
+  activateMainTab('visual');
+  activateSubTab('color');
+
+  let resizeTimer = 0;
+  window.addEventListener('resize', () => {
+    window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(() => refreshIndicators(false), 80);
+  });
+
+  document.fonts.ready.then(() => requestAnimationFrame(() => refreshIndicators(false)));
+  requestAnimationFrame(() => refreshIndicators(false));
 }
 
 // ============================================================
@@ -371,33 +534,66 @@ function setupTabs() {
 let visualApp: Application | null = null;
 
 async function initVisualTab() {
+  await document.fonts.ready;
+  await Promise.all([
+    document.fonts.load('500 12px Geist'),
+    document.fonts.load('400 12px "Geist Mono"'),
+    document.fonts.load('400 11px "Geist Mono"'),
+  ]);
+
   const cssColumn = document.getElementById('css-column')!;
   const pixiWrap = document.getElementById('pixi-canvas-wrap')!;
+  const rowGrid = document.getElementById('pixi-row-grid')!;
 
   for (const tc of TEST_CASES) {
     const cell = document.createElement('div');
     cell.className = 'test-cell';
-    cell.style.minHeight = `${ROW_HEIGHT}px`;
 
+    const parts = buildLabelParts(tc);
     const label = document.createElement('div');
     label.className = 'test-label';
-    const isTexture = tc.shapeMode === 'texture';
-    const hasInset = tc.boxShadow.includes('inset');
-    let cssNote = isTexture ? 'filter: drop-shadow()' : 'box-shadow';
-    if (isTexture && hasInset) {
-      cssNote += ' (inset not supported — showing outer)';
-    }
-    label.textContent = `${tc.label}\n${tc.boxShadow}\n[CSS: ${cssNote}]`;
+    const titleEl = document.createElement('span');
+    titleEl.className = 'test-label-title';
+    titleEl.textContent = parts.title;
+    const shadowEl = document.createElement('span');
+    shadowEl.className = 'test-label-shadow';
+    shadowEl.textContent = parts.shadow;
+    const tagEl = document.createElement('span');
+    tagEl.className = 'test-label-tag';
+    tagEl.textContent = parts.tagCss;
+    label.append(titleEl, shadowEl, tagEl);
     cell.appendChild(label);
 
     cell.appendChild(createCSSElement(tc));
     cssColumn.appendChild(cell);
   }
 
+  const cells = [...cssColumn.querySelectorAll<HTMLElement>('.test-cell')];
+  const naturals = cells.map(c => c.offsetHeight);
+  const rowHeights = naturals.map(h => Math.max(h, DEMO_ROW_MIN_PX));
+  cells.forEach((cell, i) => {
+    cell.style.height = `${rowHeights[i]}px`;
+    cell.style.minHeight = `${rowHeights[i]}px`;
+  });
+
+  const labelHeights = cells.map(c => c.querySelector<HTMLElement>('.test-label')!.offsetHeight);
+
+  const canvasHeight = rowHeights.reduce((a, b) => a + b, 0);
+
+  rowGrid.innerHTML = '';
+  for (const h of rowHeights) {
+    const row = document.createElement('div');
+    row.style.height = `${h}px`;
+    row.style.flexShrink = '0';
+    row.style.borderBottom = '1px solid var(--border)';
+    row.style.boxSizing = 'border-box';
+    rowGrid.appendChild(row);
+  }
+
   const app = new Application();
   await app.init({
     width: CANVAS_WIDTH,
-    height: CANVAS_HEIGHT,
+    height: canvasHeight,
     backgroundAlpha: 0,
     antialias: true,
     resolution: window.devicePixelRatio || 1,
@@ -408,31 +604,26 @@ async function initVisualTab() {
   visualApp = app;
   pixiWrap.appendChild(app.canvas);
 
-  const labelStyle = new TextStyle({
-    fontFamily: 'SF Mono, Fira Code, monospace',
-    fontSize: 11,
-    fill: '#777777',
-    align: 'center',
-    wordWrap: true,
-    wordWrapWidth: 300,
-  });
-
+  let yAcc = 0;
   for (let i = 0; i < TEST_CASES.length; i++) {
     const tc = TEST_CASES[i];
+    const rh = rowHeights[i];
+    const lh = labelHeights[i];
+
     const rowContainer = new Container();
-    rowContainer.y = i * ROW_HEIGHT;
+    rowContainer.y = yAcc;
+    yAcc += rh;
     app.stage.addChild(rowContainer);
 
-    const label = new Text({ text: `${tc.label} (PixiJS)`, style: labelStyle });
-    label.anchor.set(0.5, 0);
-    label.x = CANVAS_WIDTH / 2;
-    label.y = 15;
-    rowContainer.addChild(label);
+    const labelBlock = createPixiLabelBlock(tc, CANVAS_WIDTH);
+    labelBlock.y = TEST_CELL_PAD_Y;
+    rowContainer.addChild(labelBlock);
 
     const gfx = new Graphics();
     drawShapeForTestCase(gfx, tc);
+    const demoY = TEST_CELL_PAD_Y + lh + LABEL_DEMO_GAP_PX;
     gfx.x = (CANVAS_WIDTH - tc.boxWidth) / 2;
-    gfx.y = (ROW_HEIGHT - tc.boxHeight) / 2 + 10;
+    gfx.y = demoY;
 
     const filter = new BoxShadowFilter({
       boxShadow: tc.boxShadow,
@@ -508,7 +699,7 @@ async function initPerfColorTest() {
   const container = document.getElementById('perf-pixi-color-container')!;
   const app = new Application();
   await app.init({
-    width: 400, height: 280,
+    width: PERF_VIEW_W, height: PERF_VIEW_H,
     backgroundAlpha: 0,
     antialias: true,
     resolution: window.devicePixelRatio || 1,
@@ -522,8 +713,8 @@ async function initPerfColorTest() {
   const gfx = new Graphics();
   gfx.roundRect(0, 0, BOX_W, BOX_H, BORDER_RADIUS);
   gfx.fill(0xffffff);
-  gfx.x = (400 - BOX_W) / 2;
-  gfx.y = (280 - BOX_H) / 2;
+  gfx.x = (PERF_VIEW_W - BOX_W) / 2;
+  gfx.y = (PERF_VIEW_H - BOX_H) / 2;
 
   const filter = new BoxShadowFilter({
     shadows: [{ offsetX: 0, offsetY: 0, blur: 20, spread: 5, color: 'rgb(255,0,0)', alpha: 0.6, inset: false }],
@@ -539,7 +730,7 @@ async function initPerfSizeTest() {
   const container = document.getElementById('perf-pixi-size-container')!;
   const app = new Application();
   await app.init({
-    width: 400, height: 280,
+    width: PERF_VIEW_W, height: PERF_VIEW_H,
     backgroundAlpha: 0,
     antialias: true,
     resolution: window.devicePixelRatio || 1,
@@ -553,8 +744,8 @@ async function initPerfSizeTest() {
   const gfx = new Graphics();
   gfx.roundRect(0, 0, BOX_W, BOX_H, BORDER_RADIUS);
   gfx.fill(0xffffff);
-  gfx.x = (400 - BOX_W) / 2;
-  gfx.y = (280 - BOX_H) / 2;
+  gfx.x = (PERF_VIEW_W - BOX_W) / 2;
+  gfx.y = (PERF_VIEW_H - BOX_H) / 2;
 
   const filter = new BoxShadowFilter({
     boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
@@ -589,8 +780,8 @@ function perfAnimate() {
     perfSizeTest.gfx.clear();
     perfSizeTest.gfx.roundRect(0, 0, w, h, BORDER_RADIUS);
     perfSizeTest.gfx.fill(0xffffff);
-    perfSizeTest.gfx.x = (400 - w) / 2;
-    perfSizeTest.gfx.y = (280 - h) / 2;
+    perfSizeTest.gfx.x = (PERF_VIEW_W - w) / 2;
+    perfSizeTest.gfx.y = (PERF_VIEW_H - h) / 2;
   }
 
   fpsPixiColor!.tick();
@@ -608,7 +799,7 @@ function setupPerfControls() {
 
   btnAnim.addEventListener('click', () => {
     animationPaused = !animationPaused;
-    btnAnim.textContent = animationPaused ? '▶ Play Animation' : '⏸ Pause Animation';
+    btnAnim.textContent = animationPaused ? 'Play animation' : 'Pause animation';
     btnAnim.classList.toggle('paused', animationPaused);
 
     if (animationPaused) {
@@ -619,7 +810,7 @@ function setupPerfControls() {
 
   btnCanvas.addEventListener('click', () => {
     canvasPaused = !canvasPaused;
-    btnCanvas.textContent = canvasPaused ? '▶ Play Canvas' : '⏸ Pause Canvas';
+    btnCanvas.textContent = canvasPaused ? 'Play canvas' : 'Pause canvas';
     btnCanvas.classList.toggle('paused', canvasPaused);
 
     if (canvasPaused && perfAnimationId !== null) {

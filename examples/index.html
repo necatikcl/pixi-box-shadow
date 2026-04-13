@@ -4,74 +4,213 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>pixi-box-shadow — CSS vs PixiJS Side-by-Side</title>
+  <title>pixi-box-shadow — CSS vs PixiJS</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
   <style>
+    @font-face {
+      font-family: 'Geist';
+      src: url('https://cdn.jsdelivr.net/npm/geist@1.7.0/dist/fonts/geist-sans/Geist-Regular.woff2') format('woff2');
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: 'Geist';
+      src: url('https://cdn.jsdelivr.net/npm/geist@1.7.0/dist/fonts/geist-sans/Geist-Medium.woff2') format('woff2');
+      font-weight: 500;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: 'Geist';
+      src: url('https://cdn.jsdelivr.net/npm/geist@1.7.0/dist/fonts/geist-sans/Geist-SemiBold.woff2') format('woff2');
+      font-weight: 600;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: 'Geist Mono';
+      src: url('https://cdn.jsdelivr.net/npm/geist@1.7.0/dist/fonts/geist-mono/GeistMono-Regular.woff2') format('woff2');
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: 'Geist Mono';
+      src: url('https://cdn.jsdelivr.net/npm/geist@1.7.0/dist/fonts/geist-mono/GeistMono-Medium.woff2') format('woff2');
+      font-weight: 500;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    :root {
+      --bg-page: #fafafa;
+      --border: rgba(0, 0, 0, 0.06);
+      --fg: #000000;
+      --fg-secondary: #666666;
+      --fg-tertiary: #888888;
+      --accent: #0070f3;
+      --accent-muted: rgba(0, 112, 243, 0.09);
+      --accent-border: rgba(0, 112, 243, 0.25);
+      --accent-glow: rgba(0, 112, 243, 0.12);
+      --radius: 6px;
+      --radius-lg: 10px;
+      --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'Geist Mono', ui-monospace, monospace;
+    }
+
     * {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
+      scrollbar-width: none;
+    }
+
+    *::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
+    }
+
+    html {
+      -ms-overflow-style: none;
     }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #ffffff;
-      color: #333;
+      font-family: var(--font-sans);
+      background-color: var(--bg-page);
+      background-image: radial-gradient(ellipse 120% 80% at 50% -30%, var(--accent-glow), transparent 55%);
+      background-size: 100% 100%;
+      color: var(--fg);
       min-height: 100vh;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page {
+      width: 100%;
+      max-width: min(1200px, calc(100% - 48px));
+      margin: 0 auto;
+      padding: 40px 24px 64px;
+    }
+
+    .page-header {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--fg-tertiary);
+      margin-bottom: 14px;
+    }
+
+    .eyebrow::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid var(--accent-muted);
     }
 
     h1 {
-      text-align: center;
-      padding: 24px 0 8px;
-      font-size: 28px;
-      font-weight: 300;
-      letter-spacing: 2px;
-      color: #111;
+      padding: 0 0 12px;
+      font-size: clamp(1.75rem, 4vw, 2.25rem);
+      font-weight: 600;
+      letter-spacing: -0.045em;
+      line-height: 1.15;
+      color: var(--fg);
+    }
+
+    .title-gradient {
+      background: linear-gradient(135deg, #171717 0%, #404040 42%, var(--accent) 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
     }
 
     .subtitle {
-      text-align: center;
-      color: #666;
-      font-size: 14px;
-      margin-bottom: 16px;
+      color: var(--fg-secondary);
+      font-size: 1rem;
+      font-weight: 400;
+      max-width: 36rem;
+      margin: 0 auto;
+      letter-spacing: -0.01em;
     }
 
-    /* Tab navigation */
-    .tabs {
+    /* Segmented control — sliding highlight via .segment-indicator (shell matches .comparison-shell) */
+    .segment {
+      position: relative;
       display: flex;
       justify-content: center;
       gap: 0;
-      margin-bottom: 24px;
+      margin: 0 auto 28px;
+      padding: 0;
+      width: fit-content;
+      background: transparent;
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      border-radius: 10px;
+      overflow: hidden;
     }
 
-    .tab-btn {
-      padding: 10px 32px;
-      font-size: 15px;
-      font-weight: 600;
-      border: 2px solid #ccc;
+    .segment-indicator {
+      position: absolute;
+      left: 0;
+      top: 0;
+      z-index: 0;
+      pointer-events: none;
+      background: #ffffff;
+      border-radius: 10px;
+      border: none;
+    }
+
+    .tab-btn,
+    .sub-tab-btn {
+      position: relative;
+      z-index: 1;
+      padding: 11px 32px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      border: 1px solid transparent;
+      border-radius: 0;
       background: transparent;
-      color: #888;
+      color: var(--fg-secondary);
       cursor: pointer;
-      transition: all 0.2s;
+      transition: color 0.15s ease;
       font-family: inherit;
     }
 
-    .tab-btn:first-child {
-      border-radius: 8px 0 0 8px;
+    .sub-tab-btn {
+      padding: 9px 20px;
+      font-size: 0.8125rem;
     }
 
-    .tab-btn:last-child {
-      border-radius: 0 8px 8px 0;
+    .tab-btn:hover:not(.active),
+    .sub-tab-btn:hover:not(.active) {
+      color: var(--fg);
     }
 
-    .tab-btn.active {
-      background: #f0f4ff;
-      color: #1a56db;
-      border-color: #1a56db;
+    .tab-btn.active,
+    .sub-tab-btn.active {
+      color: var(--accent);
     }
 
-    .tab-btn:hover:not(.active) {
-      background: #f5f5f5;
-      color: #555;
+    .tab-btn:focus-visible,
+    .sub-tab-btn:focus-visible,
+    .perf-ctrl-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
     }
 
     .tab-content {
@@ -82,37 +221,23 @@
       display: block;
     }
 
-    /* Sub-tabs for perf */
-    .sub-tabs {
-      display: flex;
-      justify-content: center;
-      gap: 8px;
-      margin-bottom: 20px;
+    .sub-tabs.segment {
+      margin-bottom: 28px;
     }
 
-    .sub-tab-btn {
-      padding: 6px 20px;
-      font-size: 13px;
-      border: 1px solid #ccc;
-      border-radius: 20px;
+    /* Comparison */
+    .comparison-shell {
       background: transparent;
-      color: #888;
-      cursor: pointer;
-      transition: all 0.2s;
-      font-family: inherit;
+      margin: 0;
+      padding: 0;
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      border-radius: 10px;
+      overflow: hidden;
     }
 
-    .sub-tab-btn.active {
-      background: #e8f5e9;
-      color: #2e7d32;
-      border-color: #2e7d32;
-    }
-
-    /* Column layout for comparison */
     .comparison {
       display: flex;
-      max-width: 1400px;
-      margin: 0 auto;
+      margin: 0;
       gap: 0;
     }
 
@@ -121,66 +246,138 @@
       min-width: 0;
     }
 
+    .pixi-column {
+      border-left: 1px solid var(--border);
+    }
+
     .column-header {
-      text-align: center;
-      font-size: 18px;
-      font-weight: 600;
-      padding: 12px;
-      border-bottom: 2px solid #ddd;
-      position: sticky;
-      top: 0;
-      background: #ffffff;
-      z-index: 10;
-    }
-
-    .column-header.css {
-      color: #1565c0;
-    }
-
-    .column-header.pixi {
-      color: #2e7d32;
-    }
-
-    .test-cell {
-      padding: 20px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 10px;
-      border-bottom: 1px solid #e0e0e0;
-      min-height: 200px;
       justify-content: center;
+      gap: 4px;
+      text-align: center;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      background: color-mix(in srgb, var(--bg-page) 88%, transparent);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      z-index: 10;
+      color: var(--fg);
     }
 
-    .css-column .test-cell {
-      border-right: 1px solid #e0e0e0;
+    .column-header-label {
+      font-size: 0.625rem;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--fg-tertiary);
+    }
+
+    .column-header-title {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--fg);
+    }
+
+    .test-cell {
+      padding: 24px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 14px;
+      border-bottom: 1px solid var(--border);
+      box-sizing: border-box;
     }
 
     .test-label {
-      font-size: 11px;
-      color: #777;
-      font-family: 'SF Mono', 'Fira Code', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      max-width: 360px;
       text-align: center;
-      max-width: 350px;
-      word-break: break-all;
+    }
+
+    .test-label-title {
+      font-family: var(--font-sans);
+      font-size: 0.75rem;
+      font-weight: 500;
+      line-height: 1.5;
+      color: var(--fg);
+      word-break: break-word;
+    }
+
+    .test-label-shadow {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 400;
+      line-height: 1.5;
+      color: var(--fg-secondary);
+      word-break: break-word;
       white-space: pre-wrap;
+    }
+
+    .test-label-tag {
+      font-family: var(--font-mono);
+      font-size: 0.6875rem;
+      font-weight: 400;
+      line-height: 1.45;
+      color: var(--fg-tertiary);
+      word-break: break-word;
+    }
+
+    #pixi-canvas-wrap {
+      position: relative;
+      width: 100%;
+    }
+
+    .pixi-row-grid {
+      position: absolute;
+      left: 0;
+      top: 0;
+      right: 0;
+      z-index: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
     }
 
     .pixi-column canvas {
       display: block;
       margin: 0 auto;
+      position: relative;
+      z-index: 1;
     }
 
-    /* Perf layout */
+    /* Performance */
+    .perf-panel {
+      background: var(--bg-page);
+      max-width: 520px;
+      margin: 0 auto 24px;
+      padding: 0 12px;
+    }
+
+    .perf-panel-stage {
+      background: var(--bg-page);
+      padding: 28px 0 20px;
+    }
+
     .perf-single {
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 20px;
     }
 
     .perf-box-container {
       width: 400px;
+      max-width: 100%;
       height: 280px;
       display: flex;
       align-items: center;
@@ -189,55 +386,78 @@
     }
 
     .fps-counter {
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 14px;
-      color: #2e7d32;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--fg-secondary);
       text-align: center;
-      margin-top: 12px;
+      margin-top: 18px;
       min-height: 24px;
     }
 
     .perf-note {
       text-align: center;
-      color: #999;
-      font-size: 12px;
-      margin-top: 16px;
-      max-width: 600px;
-      margin-left: auto;
-      margin-right: auto;
-      line-height: 1.6;
+      color: var(--fg-secondary);
+      font-size: 0.875rem;
+      margin: 0 auto;
+      max-width: 40rem;
+      line-height: 1.65;
+      padding: 0 8px;
+    }
+
+    .perf-note+.perf-note {
+      margin-top: 14px;
+    }
+
+    .perf-note code {
+      font-family: var(--font-mono);
+      font-size: 0.8125em;
+      font-weight: 500;
+    }
+
+    .perf-note-detail {
+      margin-top: 12px;
+      padding: 0;
+      text-align: left;
+    }
+
+    .perf-note strong {
+      color: var(--fg);
+      font-weight: 600;
     }
 
     .perf-controls {
       display: flex;
       justify-content: center;
+      flex-wrap: wrap;
       gap: 12px;
-      margin-top: 24px;
+      margin: 8px 0 12px;
+      padding: 0;
     }
 
     .perf-ctrl-btn {
-      padding: 10px 24px;
-      font-size: 14px;
-      font-weight: 600;
-      border: 2px solid #ccc;
-      border-radius: 8px;
-      background: #fff;
-      color: #555;
+      padding: 11px 24px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--bg-page);
+      color: var(--fg);
       cursor: pointer;
-      transition: all 0.15s;
+      transition: background 0.15s ease, border-color 0.15s ease;
       font-family: inherit;
-      min-width: 180px;
+      min-width: 170px;
     }
 
     .perf-ctrl-btn:hover {
-      background: #f5f5f5;
-      border-color: #999;
+      background: rgba(0, 0, 0, 0.03);
+      border-color: var(--fg-tertiary);
     }
 
     .perf-ctrl-btn.paused {
-      background: #e8f5e9;
-      color: #2e7d32;
-      border-color: #2e7d32;
+      background: var(--accent-muted);
+      color: var(--accent);
+      border-color: var(--accent-border);
     }
 
     .sub-content {
@@ -247,68 +467,111 @@
     .sub-content.active {
       display: block;
     }
+
+    @media (max-width: 900px) {
+      .comparison {
+        flex-direction: column;
+      }
+
+      .pixi-column {
+        border-left: none;
+        border-top: 1px solid var(--border);
+      }
+
+      .pixi-column .column-header {
+        border-top: none;
+      }
+    }
   </style>
 </head>
 
 <body>
-  <h1>pixi-box-shadow</h1>
-  <p class="subtitle">SDF Analytical Gaussian Blur — CSS vs PixiJS v8 Side-by-Side Comparison</p>
+  <div class="page">
+    <header class="page-header">
+      <p class="eyebrow">Interactive demo</p>
+      <h1><span class="title-gradient">pixi-box-shadow</span></h1>
+      <p class="subtitle">SDF analytical Gaussian blur — CSS vs PixiJS v8 side-by-side comparison</p>
+    </header>
 
-  <div class="tabs">
-    <button class="tab-btn active" data-tab="visual">Visual</button>
-    <button class="tab-btn" data-tab="perf">Performance</button>
-  </div>
+    <div class="tabs segment" role="tablist" aria-label="Demo sections">
+      <span class="segment-indicator" id="main-tab-indicator" aria-hidden="true"></span>
+      <button type="button" class="tab-btn active" id="tab-trigger-visual" role="tab" aria-selected="true"
+        aria-controls="tab-visual" data-tab="visual">Visual</button>
+      <button type="button" class="tab-btn" id="tab-trigger-perf" role="tab" aria-selected="false"
+        aria-controls="tab-perf" data-tab="perf">Performance</button>
+    </div>
 
-  <!-- Visual Tab -->
-  <div class="tab-content active" id="tab-visual">
-    <div class="comparison">
-      <div class="column css-column" id="css-column">
-        <div class="column-header css">CSS (box-shadow / drop-shadow)</div>
+    <div class="tab-content active" id="tab-visual" role="tabpanel" aria-labelledby="tab-trigger-visual">
+      <div class="comparison-shell">
+        <div class="comparison">
+          <div class="column css-column" id="css-column">
+            <div class="column-header css">
+              <span class="column-header-label">Reference</span>
+              <span class="column-header-title">CSS · box-shadow / drop-shadow</span>
+            </div>
+          </div>
+          <div class="column pixi-column" id="pixi-column">
+            <div class="column-header pixi">
+              <span class="column-header-label">Implementation</span>
+              <span class="column-header-title">PixiJS · SDF shader</span>
+            </div>
+            <div id="pixi-canvas-wrap">
+              <div class="pixi-row-grid" id="pixi-row-grid" aria-hidden="true"></div>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="column pixi-column" id="pixi-column">
-        <div class="column-header pixi">PixiJS (SDF shader)</div>
-        <div id="pixi-canvas-wrap" style="position: relative;"></div>
+    </div>
+
+    <div class="tab-content" id="tab-perf" role="tabpanel" aria-labelledby="tab-trigger-perf" hidden inert>
+      <div class="sub-tabs segment" role="tablist" aria-label="Performance scenario">
+        <span class="segment-indicator" id="sub-tab-indicator" aria-hidden="true"></span>
+        <button type="button" class="sub-tab-btn active" id="subtab-trigger-color" role="tab" aria-selected="true"
+          aria-controls="subtab-color" data-subtab="color">Shadow color transition</button>
+        <button type="button" class="sub-tab-btn" id="subtab-trigger-size" role="tab" aria-selected="false"
+          aria-controls="subtab-size" data-subtab="size">Element size transition</button>
       </div>
-    </div>
-  </div>
 
-  <!-- Performance Tab -->
-  <div class="tab-content" id="tab-perf">
-    <div class="sub-tabs">
-      <button class="sub-tab-btn active" data-subtab="color">Shadow Color Transition</button>
-      <button class="sub-tab-btn" data-subtab="size">Element Size Transition</button>
-    </div>
-
-    <div class="sub-content active" id="subtab-color">
-      <div class="perf-single">
-        <div class="perf-box-container" id="perf-pixi-color-container"></div>
-        <div class="fps-counter" id="fps-pixi-color">–</div>
+      <div class="sub-content active" id="subtab-color" role="tabpanel" aria-labelledby="subtab-trigger-color">
+        <div class="perf-panel">
+          <div class="perf-panel-stage">
+            <div class="perf-single">
+              <div class="perf-box-container" id="perf-pixi-color-container"></div>
+              <div class="fps-counter" id="fps-pixi-color">–</div>
+            </div>
+          </div>
+        </div>
+        <p class="perf-note">Shadow color transitions from red → blue → red every frame. Measures cost of dynamic shadow
+          property updates.</p>
       </div>
-      <p class="perf-note">Shadow color transitions from red → blue → red every frame. Measures cost of dynamic shadow
-        property updates.</p>
-    </div>
 
-    <div class="sub-content" id="subtab-size">
-      <div class="perf-single">
-        <div class="perf-box-container" id="perf-pixi-size-container"></div>
-        <div class="fps-counter" id="fps-pixi-size">–</div>
+      <div class="sub-content" id="subtab-size" role="tabpanel" aria-labelledby="subtab-trigger-size" hidden inert>
+        <div class="perf-panel">
+          <div class="perf-panel-stage">
+            <div class="perf-single">
+              <div class="perf-box-container" id="perf-pixi-size-container"></div>
+              <div class="fps-counter" id="fps-pixi-size">–</div>
+            </div>
+          </div>
+        </div>
+        <p class="perf-note">Element width/height animating continuously. Measures cost of geometry changes that require
+          shadow recalculation.</p>
       </div>
-      <p class="perf-note">Element width/height animating continuously. Measures cost of geometry changes that require
-        shadow recalculation.</p>
-    </div>
 
-    <div class="perf-controls">
-      <button class="perf-ctrl-btn" id="btn-toggle-animation">⏸ Pause Animation</button>
-      <button class="perf-ctrl-btn" id="btn-toggle-canvas">⏸ Pause Canvas</button>
+      <div class="perf-controls">
+        <button type="button" class="perf-ctrl-btn" id="btn-toggle-animation">Pause animation</button>
+        <button type="button" class="perf-ctrl-btn" id="btn-toggle-canvas">Pause canvas</button>
+      </div>
+      <p class="perf-note perf-note-detail">
+        <strong>Pause animation</strong> — the perf loop still calls <code>render()</code> each frame, but
+        uniforms/geometry stop updating. Tests static-scene redraw cost.<br />
+        <strong>Pause canvas</strong> — stops the perf <code>requestAnimationFrame</code> loop (no
+        <code>render()</code>).
+        These apps use <code>autoStart: false</code> so no hidden ticker. GPU should idle.<br />
+        <strong>Note:</strong> the Visual tab comparison canvas is stopped while you are on Performance, so Activity
+        Monitor reflects perf demos only.
+      </p>
     </div>
-    <p class="perf-note" style="margin-top: 8px;">
-      <strong>Pause Animation</strong> — the perf loop still calls <code>render()</code> each frame, but
-      uniforms/geometry stop updating. Tests static-scene redraw cost.<br>
-      <strong>Pause Canvas</strong> — stops the perf <code>requestAnimationFrame</code> loop (no <code>render()</code>).
-      These apps use <code>autoStart: false</code> so no hidden ticker. GPU should idle.<br>
-      <strong>Note:</strong> the Visual tab comparison canvas is stopped while you are on Performance, so Activity
-      Monitor reflects perf demos only.
-    </p>
   </div>
 
   <script type="module" src="./main.ts"></script>

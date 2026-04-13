@@ -376,8 +376,13 @@ async function initVisualTab() {
 
     const label = document.createElement('div');
     label.className = 'test-label';
-    const cssMethod = (tc.shapeMode === 'texture') ? 'filter: drop-shadow()' : 'box-shadow';
-    label.textContent = `${tc.label}\n${tc.boxShadow}\n[CSS: ${cssMethod}]`;
+    const isTexture = tc.shapeMode === 'texture';
+    const hasInset = tc.boxShadow.includes('inset');
+    let cssNote = isTexture ? 'filter: drop-shadow()' : 'box-shadow';
+    if (isTexture && hasInset) {
+      cssNote += ' (inset not supported — showing outer)';
+    }
+    label.textContent = `${tc.label}\n${tc.boxShadow}\n[CSS: ${cssNote}]`;
     cell.appendChild(label);
 
     cell.appendChild(createCSSElement(tc));

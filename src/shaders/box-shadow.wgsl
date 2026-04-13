@@ -191,7 +191,10 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
       let sampledAlpha = readBlurredAlpha(input.uv - offsetUV, sigma, spreadArg);
 
       if (isInset > 0.5) {
-        shadowValue = (1.0 - sampledAlpha) * insideElement;
+        // Inset: shadow where blurred alpha (at offset pos) < original alpha.
+        // Using subtraction instead of (1-blurred)*inside avoids
+        // bright-edge artifacts at antialiased shape boundaries.
+        shadowValue = clamp(insideElement - sampledAlpha, 0.0, 1.0);
       } else {
         shadowValue = sampledAlpha;
       }

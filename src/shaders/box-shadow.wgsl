@@ -18,12 +18,17 @@ struct BoxShadowUniforms {
   uShadowOffsetBlurSpread: array<vec4<f32>, 8>,
   uShadowColor: array<vec4<f32>, 8>,
   uShadowInset: array<vec4<f32>, 2>,
+  uMaxSigma: f32,
+  uRenderElement: i32,
 };
 
 @group(0) @binding(0) var<uniform> gfu: GlobalFilterUniforms;
 @group(0) @binding(1) var uTexture: texture_2d<f32>;
 @group(0) @binding(2) var uSampler: sampler;
+
 @group(1) @binding(0) var<uniform> bsu: BoxShadowUniforms;
+@group(1) @binding(1) var uBlurredAlpha: texture_2d<f32>;
+@group(1) @binding(2) var uBlurredAlphaSampler: sampler;
 
 struct VSOutput {
   @builtin(position) position: vec4<f32>,
@@ -104,52 +109,23 @@ fn getShadowInset(index: i32) -> f32 {
   return v.w;
 }
 
-const GOLDEN_ANGLE: f32 = 2.39996322973;
+fn readBlurredAlpha(uv: vec2<f32>, sigma: f32, spread: f32) -> f32 {
+  var alpha: f32;
 
-fn sampleAlphaDisc(uv: vec2<f32>, sigma: f32, spread: f32) -> f32 {
-  if (sigma < 0.5 && abs(spread) < 0.5) {
-    return textureSample(uTexture, uSampler, uv).a;
+  if (sigma < 0.5) {
+    alpha = textureSample(uTexture, uSampler, uv).a;
+  } else {
+    alpha = textureSample(uBlurredAlpha, uBlurredAlphaSampler, uv).a;
   }
 
-  let effectiveSigma = max(sigma, 0.5);
-
-  let baseSamples = bsu.uQuality * 16;
-  let sigmaScale = clamp(effectiveSigma / 8.0, 1.0, 4.0);
-  var sampleCount = i32(f32(baseSamples) * sigmaScale);
-  sampleCount = min(sampleCount, 256);
-
-  var totalWeight: f32 = 0.0;
-  var totalAlpha: f32 = 0.0;
-  let invSigma2 = 1.0 / (2.0 * effectiveSigma * effectiveSigma);
-  let maxR = effectiveSigma * 3.0;
-
-  let centerAlpha = textureSample(uTexture, uSampler, uv).a;
-  let centerW: f32 = 1.0;
-  totalAlpha += centerAlpha * centerW;
-  totalWeight += centerW;
-
-  for (var i = 0; i < 256; i++) {
-    if (i >= sampleCount) { break; }
-    let fi = f32(i) + 1.0;
-    let r = maxR * sqrt(fi / f32(sampleCount + 1));
-    let theta = fi * GOLDEN_ANGLE;
-    let off = vec2<f32>(cos(theta), sin(theta)) * r;
-
-    let sampleUV = uv + off * gfu.uInputSize.zw;
-    let w = exp(-dot(off, off) * invSigma2);
-    totalAlpha += textureSample(uTexture, uSampler, sampleUV).a * w;
-    totalWeight += w;
+  // Spread: use gaussianCDF to find the new edge alpha, then remap
+  if (abs(spread) > 0.01) {
+    let effectiveSigma = max(sigma, 0.5);
+    let edgeAlpha = gaussianCDF(-spread, effectiveSigma);
+    alpha = smoothstep(0.0, edgeAlpha * 2.0, alpha);
   }
 
-  var blurred = totalAlpha / max(totalWeight, 0.001);
-
-  if (abs(spread) > 0.5) {
-    let bias = -spread / (effectiveSigma * 2.0 + 1.0);
-    let scale = 1.0 + abs(spread) / (effectiveSigma + 1.0);
-    blurred = clamp((blurred - 0.5 + bias) * scale + 0.5, 0.0, 1.0);
-  }
-
-  return blurred;
+  return alpha;
 }
 
 @fragment
@@ -185,6 +161,9 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
     let shadowCol = bsu.uShadowColor[i];
     let isInset = getShadowInset(i);
 
+    // Skip shadows with zero alpha (per-group rendering)
+    if (shadowCol.a < 0.001) { continue; }
+
     let sigma = blur * 0.5;
 
     var shadowValue: f32;
@@ -197,10 +176,10 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
       } else {
         spreadArg = spread;
       }
-      let sampledAlpha = sampleAlphaDisc(input.uv - offsetUV, sigma, spreadArg);
+      let sampledAlpha = readBlurredAlpha(input.uv - offsetUV, sigma, spreadArg);
 
       if (isInset > 0.5) {
-        shadowValue = (1.0 - sampledAlpha) * insideElement;
+        shadowValue = (1.0 - sampledAlpha) * step(0.5, insideElement);
       } else {
         shadowValue = sampledAlpha;
       }
@@ -233,16 +212,18 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
     }
   }
 
-  // Composite in CSS order:
-  // 1. Outer shadows
-  var color = outerResult;
-  // 2. Texture on top
-  color = texColor + color * (1.0 - texColor.a);
-  // 3. Inset shadows on top of texture
-  color = vec4<f32>(
-    insetResult.rgb + color.rgb * (1.0 - insetResult.a),
-    insetResult.a + color.a * (1.0 - insetResult.a)
-  );
-
-  return color;
+  // Compositing
+  if (bsu.uRenderElement == 1) {
+    // Full composite: outer shadows + element + inset shadows
+    var color = outerResult;
+    color = texColor + color * (1.0 - texColor.a);
+    color = vec4<f32>(
+      insetResult.rgb + color.rgb * (1.0 - insetResult.a),
+      insetResult.a + color.a * (1.0 - insetResult.a)
+    );
+    return color;
+  } else {
+    // Shadows only (no element) — intermediate per-sigma pass
+    return outerResult;
+  }
 }

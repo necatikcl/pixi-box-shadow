@@ -2,17 +2,13 @@
 //
 // Two shape modes:
 //   shapeMode 0 ('box')     — analytical SDF rounded-rectangle, O(1) per pixel
-//   shapeMode 1 ('texture') — multi-tap alpha sampling, works with any shape
+//   shapeMode 1 ('texture') — two-pass separable Gaussian blur on alpha channel
+//                              (CSS filter: drop-shadow() approach)
 //
 // Compositing order (matches CSS spec):
 //   1. Outer shadows — behind the element
 //   2. Element texture — the actual rendered content
 //   3. Inset shadows — on top of element background, below content
-//
-// References:
-//   - Evan Wallace: https://madebyevan.com/shaders/fast-rounded-rectangle-shadows/
-//   - Raph Levien: https://raphlinus.github.io/graphics/2020/04/21/blurred-rounded-rects.html
-//   - Inigo Quilez SDF: https://iquilezles.org/articles/distfunctions2d/
 
 precision highp float;
 
@@ -23,6 +19,9 @@ out vec4 finalColor;
 uniform sampler2D uTexture;
 uniform vec4 uInputSize;
 
+// Pre-blurred alpha texture (texture mode only, set by apply() pipeline)
+uniform sampler2D uBlurredAlpha;
+
 uniform vec2 uElementSize;
 uniform vec4 uBorderRadius;
 uniform vec2 uPaddingOffset;
@@ -32,8 +31,10 @@ uniform vec4 uShadowOffsetBlurSpread[8];
 uniform vec4 uShadowColor[8];
 uniform float uShadowInset[8];
 
-uniform int uShapeMode;   // 0 = box (SDF), 1 = texture (alpha sampling)
-uniform int uQuality;     // 1–5: multiplied by 16 to get sample count
+uniform int uShapeMode;       // 0 = box (SDF), 1 = texture
+uniform int uQuality;         // kept for backward compat
+uniform float uMaxSigma;      // sigma used for the blur passes
+uniform int uRenderElement;   // 1 = composite element+shadows, 0 = shadows only
 
 // ============================================================
 // Fast erf approximation (Abramowitz & Stegun 7.1.26)
@@ -87,55 +88,32 @@ float roundedBoxShadow(vec2 p, vec2 halfSize, float sigma, vec4 radii) {
 }
 
 // ============================================================
-// Texture-based alpha sampling with Gaussian-weighted disc
+// Read pre-blurred alpha with spread adjustment (texture mode)
 // ============================================================
-// Golden angle in radians
-const float GOLDEN_ANGLE = 2.39996322973;
 
-float sampleAlphaDisc(vec2 uv, float sigma, float spread) {
-    if (sigma < 0.5 && abs(spread) < 0.5) {
-        return texture(uTexture, uv).a;
+float readBlurredAlpha(vec2 uv, float sigma, float spread) {
+    float alpha;
+
+    if (sigma < 0.5) {
+        alpha = texture(uTexture, uv).a;
+    } else {
+        alpha = texture(uBlurredAlpha, uv).a;
     }
 
-    float effectiveSigma = max(sigma, 0.5);
-
-    int baseSamples = uQuality * 16;
-    float sigmaScale = clamp(effectiveSigma / 8.0, 1.0, 4.0);
-    int sampleCount = int(float(baseSamples) * sigmaScale);
-    if (sampleCount > 256) sampleCount = 256;
-
-    float totalWeight = 0.0;
-    float totalAlpha = 0.0;
-    float invSigma2 = 1.0 / (2.0 * effectiveSigma * effectiveSigma);
-    float maxR = effectiveSigma * 3.0;
-
-    float centerAlpha = texture(uTexture, uv).a;
-    float centerW = 1.0;
-    totalAlpha += centerAlpha * centerW;
-    totalWeight += centerW;
-
-    for (int i = 0; i < 256; i++) {
-        if (i >= sampleCount) break;
-        float fi = float(i) + 1.0;
-        float r = maxR * sqrt(fi / float(sampleCount + 1));
-        float theta = fi * GOLDEN_ANGLE;
-        vec2 off = vec2(cos(theta), sin(theta)) * r;
-
-        vec2 sampleUV = uv + off * uInputSize.zw;
-        float w = exp(-dot(off, off) * invSigma2);
-        totalAlpha += texture(uTexture, sampleUV).a * w;
-        totalWeight += w;
+    // Spread: expand or shrink the shadow shape.
+    // Use gaussianCDF to find the alpha value at the new edge position,
+    // then remap with smoothstep so α=0 stays 0 and α=1 stays 1.
+    if (abs(spread) > 0.01) {
+        float effectiveSigma = max(sigma, 0.5);
+        // gaussianCDF(-spread, sigma) gives the alpha at distance `spread`
+        // from the original edge. This becomes our new 50% crossing point.
+        float edgeAlpha = gaussianCDF(-spread, effectiveSigma);
+        // Remap: values below 0 stay 0, the new edge maps to ~0.5,
+        // and values above map toward 1.
+        alpha = smoothstep(0.0, edgeAlpha * 2.0, alpha);
     }
 
-    float blurred = totalAlpha / max(totalWeight, 0.001);
-
-    if (abs(spread) > 0.5) {
-        float bias = -spread / (effectiveSigma * 2.0 + 1.0);
-        float scale = 1.0 + abs(spread) / (effectiveSigma + 1.0);
-        blurred = clamp((blurred - 0.5 + bias) * scale + 0.5, 0.0, 1.0);
-    }
-
-    return blurred;
+    return alpha;
 }
 
 void main(void) {
@@ -170,15 +148,23 @@ void main(void) {
         vec4 shadowCol = uShadowColor[i];
         float isInset = uShadowInset[i];
 
+        // Skip shadows with zero alpha (used for per-group rendering)
+        if (shadowCol.a < 0.001) continue;
+
         float sigma = blur * 0.5;
         float shadowValue;
 
         if (uShapeMode == 1) {
+            // Texture mode: read pre-blurred alpha
             vec2 offsetUV = offset * uInputSize.zw;
-            float sampledAlpha = sampleAlphaDisc(vTextureCoord - offsetUV, sigma, isInset > 0.5 ? -spread : spread);
+            float sampledAlpha = readBlurredAlpha(
+                vTextureCoord - offsetUV,
+                sigma,
+                isInset > 0.5 ? -spread : spread
+            );
 
             if (isInset > 0.5) {
-                shadowValue = (1.0 - sampledAlpha) * insideElement;
+                shadowValue = (1.0 - sampledAlpha) * step(0.5, insideElement);
             } else {
                 shadowValue = sampledAlpha;
             }
@@ -190,6 +176,7 @@ void main(void) {
                 outerResult = outerResult + shadow * (1.0 - outerResult.a);
             }
         } else {
+            // Box mode: analytical SDF (unchanged)
             vec2 shadowP = p - offset;
 
             if (isInset > 0.5) {
@@ -211,18 +198,18 @@ void main(void) {
         }
     }
 
-    // Composite in CSS order:
-    // 1. Start with outer shadows
-    vec4 color = outerResult;
-
-    // 2. Layer the original texture on top of outer shadows
-    color = texColor + color * (1.0 - texColor.a);
-
-    // 3. Layer inset shadows on top of the texture
-    color = vec4(
-        insetResult.rgb + color.rgb * (1.0 - insetResult.a),
-        insetResult.a + color.a * (1.0 - insetResult.a)
-    );
-
-    finalColor = color;
+    // Compositing
+    if (uRenderElement == 1) {
+        // Full composite: outer shadows + element + inset shadows
+        vec4 color = outerResult;
+        color = texColor + color * (1.0 - texColor.a);
+        color = vec4(
+            insetResult.rgb + color.rgb * (1.0 - insetResult.a),
+            insetResult.a + color.a * (1.0 - insetResult.a)
+        );
+        finalColor = color;
+    } else {
+        // Shadows only (no element) — used for intermediate per-sigma passes
+        finalColor = outerResult;
+    }
 }

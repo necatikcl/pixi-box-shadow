@@ -4,249 +4,198 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>pixi-box-shadow — CSS vs PixiJS Side-by-Side</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #ffffff;
-      color: #333;
-      min-height: 100vh;
-    }
-    h1 {
-      text-align: center;
-      padding: 24px 0 8px;
-      font-size: 28px;
-      font-weight: 300;
-      letter-spacing: 2px;
-      color: #111;
-    }
-    .subtitle {
-      text-align: center;
-      color: #666;
-      font-size: 14px;
-      margin-bottom: 16px;
-    }
-
-    /* Tab navigation */
-    .tabs {
-      display: flex;
-      justify-content: center;
-      gap: 0;
-      margin-bottom: 24px;
-    }
-    .tab-btn {
-      padding: 10px 32px;
-      font-size: 15px;
-      font-weight: 600;
-      border: 2px solid #ccc;
-      background: transparent;
-      color: #888;
-      cursor: pointer;
-      transition: all 0.2s;
-      font-family: inherit;
-    }
-    .tab-btn:first-child { border-radius: 8px 0 0 8px; }
-    .tab-btn:last-child { border-radius: 0 8px 8px 0; }
-    .tab-btn.active {
-      background: #f0f4ff;
-      color: #1a56db;
-      border-color: #1a56db;
-    }
-    .tab-btn:hover:not(.active) { background: #f5f5f5; color: #555; }
-
-    .tab-content { display: none; }
-    .tab-content.active { display: block; }
-
-    /* Sub-tabs for perf */
-    .sub-tabs {
-      display: flex;
-      justify-content: center;
-      gap: 8px;
-      margin-bottom: 20px;
-    }
-    .sub-tab-btn {
-      padding: 6px 20px;
-      font-size: 13px;
-      border: 1px solid #ccc;
-      border-radius: 20px;
-      background: transparent;
-      color: #888;
-      cursor: pointer;
-      transition: all 0.2s;
-      font-family: inherit;
-    }
-    .sub-tab-btn.active {
-      background: #e8f5e9;
-      color: #2e7d32;
-      border-color: #2e7d32;
-    }
-
-    /* Column layout for comparison */
-    .comparison {
-      display: flex;
-      max-width: 1400px;
-      margin: 0 auto;
-      gap: 0;
-    }
-    .column {
-      flex: 1;
-      min-width: 0;
-    }
-    .column-header {
-      text-align: center;
-      font-size: 18px;
-      font-weight: 600;
-      padding: 12px;
-      border-bottom: 2px solid #ddd;
-      position: sticky;
-      top: 0;
-      background: #ffffff;
-      z-index: 10;
-    }
-    .column-header.css { color: #1565c0; }
-    .column-header.pixi { color: #2e7d32; }
-    .test-cell {
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 10px;
-      border-bottom: 1px solid #e0e0e0;
-      min-height: 200px;
-      justify-content: center;
-    }
-    .css-column .test-cell {
-      border-right: 1px solid #e0e0e0;
-    }
-    .test-label {
-      font-size: 11px;
-      color: #777;
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      text-align: center;
-      max-width: 350px;
-      word-break: break-all;
-      white-space: pre-wrap;
-    }
-    .pixi-column canvas {
-      display: block;
-      margin: 0 auto;
-    }
-
-    /* Perf layout */
-    .perf-single {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 20px;
-    }
-    .perf-box-container {
-      width: 400px;
-      height: 280px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      position: relative;
-    }
-    .fps-counter {
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 14px;
-      color: #2e7d32;
-      text-align: center;
-      margin-top: 12px;
-      min-height: 24px;
-    }
-    .perf-note {
-      text-align: center;
-      color: #999;
-      font-size: 12px;
-      margin-top: 16px;
-      max-width: 600px;
-      margin-left: auto;
-      margin-right: auto;
-      line-height: 1.6;
-    }
-    .perf-controls {
-      display: flex;
-      justify-content: center;
-      gap: 12px;
-      margin-top: 24px;
-    }
-    .perf-ctrl-btn {
-      padding: 10px 24px;
-      font-size: 14px;
-      font-weight: 600;
-      border: 2px solid #ccc;
-      border-radius: 8px;
-      background: #fff;
-      color: #555;
-      cursor: pointer;
-      transition: all 0.15s;
-      font-family: inherit;
-      min-width: 180px;
-    }
-    .perf-ctrl-btn:hover { background: #f5f5f5; border-color: #999; }
-    .perf-ctrl-btn.paused {
-      background: #e8f5e9;
-      color: #2e7d32;
-      border-color: #2e7d32;
-    }
-    .sub-content { display: none; }
-    .sub-content.active { display: block; }
-  </style>
+  <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <h1>pixi-box-shadow</h1>
-  <p class="subtitle">SDF Analytical Gaussian Blur — CSS vs PixiJS v8 Side-by-Side Comparison</p>
-
-  <div class="tabs">
-    <button class="tab-btn active" data-tab="visual">Visual</button>
-    <button class="tab-btn" data-tab="perf">Performance</button>
-  </div>
-
-  <!-- Visual Tab -->
-  <div class="tab-content active" id="tab-visual">
-    <div class="comparison">
-      <div class="column css-column" id="css-column">
-        <div class="column-header css">CSS (box-shadow / drop-shadow)</div>
+  <div class="page-shell">
+    <header class="hero-card">
+      <div class="hero-card__copy">
+        <span class="eyebrow">Design refresh</span>
+        <h1>pixi-box-shadow</h1>
+        <p class="subtitle">
+          A cleaner, lighter demo workspace for comparing browser-rendered CSS shadows with PixiJS shader output.
+        </p>
+        <div class="hero-card__chips">
+          <span class="info-chip">Light theme</span>
+          <span class="info-chip">Crisp borders</span>
+          <span class="info-chip">Side-by-side parity</span>
+        </div>
       </div>
-      <div class="column pixi-column" id="pixi-column">
-        <div class="column-header pixi">PixiJS (SDF shader)</div>
-        <div id="pixi-canvas-wrap" style="position: relative;"></div>
+
+      <aside class="hero-card__aside">
+        <span class="hero-card__aside-label">What this page shows</span>
+        <p>
+          Compare CSS <code>box-shadow</code> and <code>drop-shadow()</code> output against PixiJS v8 rendering across
+          standard boxes, rounded corners, inset layers, and arbitrary texture-driven shapes.
+        </p>
+      </aside>
+    </header>
+
+    <section class="stats-grid" aria-label="Demo statistics">
+      <article class="stat-card">
+        <span class="stat-card__label">Scenarios</span>
+        <strong class="stat-card__value" id="stat-total-cases">0</strong>
+        <p class="stat-card__note">Visual comparisons rendered side-by-side.</p>
+      </article>
+      <article class="stat-card">
+        <span class="stat-card__label">Texture mode</span>
+        <strong class="stat-card__value" id="stat-texture-cases">0</strong>
+        <p class="stat-card__note">Cases that read the element alpha shape instead of a rounded box.</p>
+      </article>
+      <article class="stat-card">
+        <span class="stat-card__label">Inset coverage</span>
+        <strong class="stat-card__value" id="stat-inset-cases">0</strong>
+        <p class="stat-card__note">Scenarios validating inner shadow behavior.</p>
+      </article>
+      <article class="stat-card">
+        <span class="stat-card__label">Multi-layer stacks</span>
+        <strong class="stat-card__value" id="stat-multi-cases">0</strong>
+        <p class="stat-card__note">Cases where multiple shadow layers are composed together.</p>
+      </article>
+    </section>
+
+    <main class="workspace-card">
+      <div class="workspace-card__toolbar">
+        <div class="workspace-card__intro">
+          <span class="eyebrow">Demo workspace</span>
+          <h2>CSS fidelity and runtime behavior</h2>
+          <p>
+            The visual tab focuses on feature parity. The performance tab isolates common animation patterns so you can
+            inspect runtime cost while preserving the same polished presentation.
+          </p>
+        </div>
+
+        <div class="tabs" role="tablist" aria-label="Demo sections">
+          <button class="tab-btn active" data-tab="visual" role="tab" aria-selected="true" aria-controls="tab-visual">
+            Visual
+          </button>
+          <button class="tab-btn" data-tab="perf" role="tab" aria-selected="false" aria-controls="tab-perf">
+            Performance
+          </button>
+        </div>
       </div>
-    </div>
-  </div>
 
-  <!-- Performance Tab -->
-  <div class="tab-content" id="tab-perf">
-    <div class="sub-tabs">
-      <button class="sub-tab-btn active" data-subtab="color">Shadow Color Transition</button>
-      <button class="sub-tab-btn" data-subtab="size">Element Size Transition</button>
-    </div>
+      <div class="tab-content active" id="tab-visual" role="tabpanel">
+        <div class="section-banner">
+          <div>
+            <span class="section-banner__label">Visual comparison</span>
+            <p>
+              Each row uses the same shadow recipe on both sides. DOM previews act as the browser reference, while the
+              canvas shows the PixiJS filter output.
+            </p>
+          </div>
+          <div class="section-banner__meta">
+            <span class="section-badge">Sticky headers</span>
+            <span class="section-badge">Responsive scroll frame</span>
+          </div>
+        </div>
 
-    <div class="sub-content active" id="subtab-color">
-      <div class="perf-single">
-        <div class="perf-box-container" id="perf-pixi-color-container"></div>
-        <div class="fps-counter" id="fps-pixi-color">–</div>
+        <div class="comparison-shell">
+          <div class="comparison-scroll">
+            <div class="comparison">
+              <div class="column css-column" id="css-column">
+                <div class="column-header css">
+                  <span class="column-header__eyebrow">Reference output</span>
+                  <strong>CSS</strong>
+                  <span class="column-header__meta">box-shadow / drop-shadow()</span>
+                </div>
+              </div>
+              <div class="column pixi-column" id="pixi-column">
+                <div class="column-header pixi">
+                  <span class="column-header__eyebrow">Shader output</span>
+                  <strong>PixiJS</strong>
+                  <span class="column-header__meta">SDF / texture-based rendering</span>
+                </div>
+                <div id="pixi-canvas-wrap" class="pixi-canvas-wrap"></div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
-      <p class="perf-note">Shadow color transitions from red → blue → red every frame. Measures cost of dynamic shadow property updates.</p>
-    </div>
 
-    <div class="sub-content" id="subtab-size">
-      <div class="perf-single">
-        <div class="perf-box-container" id="perf-pixi-size-container"></div>
-        <div class="fps-counter" id="fps-pixi-size">–</div>
+      <div class="tab-content" id="tab-perf" role="tabpanel">
+        <div class="section-banner">
+          <div>
+            <span class="section-banner__label">Interactive benchmarks</span>
+            <p>
+              Switch between targeted animation scenarios to inspect how direct uniform updates compare with size-driven
+              geometry changes.
+            </p>
+          </div>
+          <div class="section-banner__meta">
+            <span class="section-badge">Lazy initialization</span>
+            <span class="section-badge">Live FPS telemetry</span>
+          </div>
+        </div>
+
+        <div class="sub-tabs" role="tablist" aria-label="Performance scenarios">
+          <button class="sub-tab-btn active" data-subtab="color" role="tab" aria-selected="true" aria-controls="subtab-color">
+            Shadow Color Transition
+          </button>
+          <button class="sub-tab-btn" data-subtab="size" role="tab" aria-selected="false" aria-controls="subtab-size">
+            Element Size Transition
+          </button>
+        </div>
+
+        <div class="sub-content active" id="subtab-color" role="tabpanel">
+          <article class="perf-panel">
+            <div class="perf-panel__header">
+              <div>
+                <span class="eyebrow">Benchmark 01</span>
+                <h3>Animate shadow color in-place</h3>
+              </div>
+              <p>
+                The box geometry stays fixed while the shadow color is updated every frame by writing directly to the
+                filter uniforms.
+              </p>
+            </div>
+            <div class="perf-single">
+              <div class="perf-box-container" id="perf-pixi-color-container"></div>
+              <div class="fps-counter" id="fps-pixi-color">–</div>
+            </div>
+            <p class="perf-note">
+              Color sweeps from red to blue and back again. This isolates the cost of mutating shadow properties without
+              forcing geometry recalculation.
+            </p>
+          </article>
+        </div>
+
+        <div class="sub-content" id="subtab-size" role="tabpanel">
+          <article class="perf-panel">
+            <div class="perf-panel__header">
+              <div>
+                <span class="eyebrow">Benchmark 02</span>
+                <h3>Animate geometry and shadow bounds</h3>
+              </div>
+              <p>
+                The rectangle expands and contracts continuously, exercising the path where the element dimensions and
+                shadow coverage must be re-evaluated.
+              </p>
+            </div>
+            <div class="perf-single">
+              <div class="perf-box-container" id="perf-pixi-size-container"></div>
+              <div class="fps-counter" id="fps-pixi-size">–</div>
+            </div>
+            <p class="perf-note">
+              Width and height animate together. This measures the runtime impact of shape changes that alter shadow
+              placement and padding.
+            </p>
+          </article>
+        </div>
+
+        <div class="perf-footer">
+          <div class="perf-controls">
+            <button class="perf-ctrl-btn" id="btn-toggle-animation">⏸ Pause Animation</button>
+            <button class="perf-ctrl-btn" id="btn-toggle-canvas">⏸ Pause Canvas</button>
+          </div>
+
+          <div class="perf-legend">
+            <p><strong>Pause Animation</strong> keeps the render loop alive but freezes the animated values.</p>
+            <p><strong>Pause Canvas</strong> stops the ticker entirely so the GPU does no additional work.</p>
+          </div>
+        </div>
       </div>
-      <p class="perf-note">Element width/height animating continuously. Measures cost of geometry changes that require shadow recalculation.</p>
-    </div>
-
-    <div class="perf-controls">
-      <button class="perf-ctrl-btn" id="btn-toggle-animation">⏸ Pause Animation</button>
-      <button class="perf-ctrl-btn" id="btn-toggle-canvas">⏸ Pause Canvas</button>
-    </div>
-    <p class="perf-note" style="margin-top: 8px;">
-      <strong>Pause Animation</strong> — ticker keeps running (re-renders every frame) but nothing changes. Tests idle/cache cost.<br>
-      <strong>Pause Canvas</strong> — stops the ticker entirely. Zero GPU work.
-    </p>
+    </main>
   </div>
 
   <script type="module" src="./main.ts"></script>

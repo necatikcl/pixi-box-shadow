@@ -18,6 +18,13 @@ interface TestCase {
   drawShape?: 'rect' | 'circle' | 'star' | 'diamond' | 'triangle' | 'heart' | 'hexagon' | 'cross';
 }
 
+interface DemoStats {
+  totalCases: number;
+  textureCases: number;
+  insetCases: number;
+  multiShadowCases: number;
+}
+
 const TEST_CASES: TestCase[] = [
   // ── Original box-mode tests ────────────────────────────────
   { label: 'Basic outer shadow', boxShadow: '4px 4px 8px rgba(0, 0, 0, 0.5)', borderRadius: 0, boxWidth: 160, boxHeight: 80, bgColor: '#ffffff', bgColorHex: 0xffffff },
@@ -64,6 +71,59 @@ const TEST_CASES: TestCase[] = [
 const ROW_HEIGHT = 200;
 const CANVAS_WIDTH = 400;
 const CANVAS_HEIGHT = ROW_HEIGHT * TEST_CASES.length;
+
+function splitTopLevelCommaList(value: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    else if (ch === ',' && depth === 0) {
+      parts.push(value.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+
+  const last = value.slice(start).trim();
+  if (last.length > 0) {
+    parts.push(last);
+  }
+
+  return parts;
+}
+
+function getDemoStats(): DemoStats {
+  return TEST_CASES.reduce<DemoStats>((stats, testCase) => {
+    stats.totalCases += 1;
+    if (testCase.shapeMode === 'texture') {
+      stats.textureCases += 1;
+    }
+    if (testCase.boxShadow.includes('inset')) {
+      stats.insetCases += 1;
+    }
+    if (splitTopLevelCommaList(testCase.boxShadow).length > 1) {
+      stats.multiShadowCases += 1;
+    }
+    return stats;
+  }, {
+    totalCases: 0,
+    textureCases: 0,
+    insetCases: 0,
+    multiShadowCases: 0,
+  });
+}
+
+function setTextContent(id: string, value: string): void {
+  const element = document.getElementById(id);
+  if (!element) {
+    return;
+  }
+
+  element.textContent = value;
+}
 
 function drawRoundedRect(
   gfx: Graphics, w: number, h: number,
@@ -203,21 +263,7 @@ function drawShapeForTestCase(gfx: Graphics, tc: TestCase): void {
  * Multiple comma-separated shadows become chained drop-shadow() calls.
  */
 function boxShadowToDropShadow(boxShadow: string): string {
-  // Split on top-level commas (respecting parentheses)
-  const parts: string[] = [];
-  let depth = 0, start = 0;
-  for (let i = 0; i < boxShadow.length; i++) {
-    const ch = boxShadow[i];
-    if (ch === '(') depth++;
-    else if (ch === ')') depth--;
-    else if (ch === ',' && depth === 0) {
-      parts.push(boxShadow.slice(start, i).trim());
-      start = i + 1;
-    }
-  }
-  const last = boxShadow.slice(start).trim();
-  if (last.length > 0) parts.push(last);
-
+  const parts = splitTopLevelCommaList(boxShadow);
   const filters: string[] = [];
   for (const part of parts) {
     // Strip inset keyword
@@ -286,6 +332,7 @@ function createCSSElement(tc: TestCase): HTMLElement {
   // ── Non-rect shapes: use CSS filter: drop-shadow() ─────────
   if (shape === 'circle') {
     const el = document.createElement('div');
+    el.className = 'css-preview-shape';
     el.style.width = `${tc.boxWidth}px`;
     el.style.height = `${tc.boxHeight}px`;
     el.style.background = tc.bgColor;
@@ -296,6 +343,7 @@ function createCSSElement(tc: TestCase): HTMLElement {
 
   if (shape !== 'rect') {
     const wrap = document.createElement('div');
+    wrap.className = 'css-preview-shape';
     wrap.style.width = `${tc.boxWidth}px`;
     wrap.style.height = `${tc.boxHeight}px`;
     wrap.style.display = 'flex';
@@ -315,6 +363,7 @@ function createCSSElement(tc: TestCase): HTMLElement {
     : `${tc.borderRadius}px`;
 
   const el = document.createElement('div');
+  el.className = 'css-preview-shape';
   el.style.width = `${tc.boxWidth}px`;
   el.style.height = `${tc.boxHeight}px`;
   el.style.background = tc.bgColor;
@@ -334,10 +383,16 @@ function setupTabs() {
   tabBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       tabBtns.forEach(b => b.classList.remove('active'));
-      tabContents.forEach(c => c.classList.remove('active'));
+      tabBtns.forEach(b => b.setAttribute('aria-selected', 'false'));
+      tabContents.forEach(c => {
+        c.classList.remove('active');
+        c.setAttribute('hidden', 'true');
+      });
       btn.classList.add('active');
+      btn.setAttribute('aria-selected', 'true');
       const tab = document.getElementById(`tab-${btn.dataset.tab}`)!;
       tab.classList.add('active');
+      tab.removeAttribute('hidden');
 
       if (btn.dataset.tab === 'perf') {
         startPerfAnimations();
@@ -353,12 +408,115 @@ function setupTabs() {
   subBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       subBtns.forEach(b => b.classList.remove('active'));
-      subContents.forEach(c => c.classList.remove('active'));
+      subBtns.forEach(b => b.setAttribute('aria-selected', 'false'));
+      subContents.forEach(c => {
+        c.classList.remove('active');
+        c.setAttribute('hidden', 'true');
+      });
       btn.classList.add('active');
+      btn.setAttribute('aria-selected', 'true');
       const sub = document.getElementById(`subtab-${btn.dataset.subtab}`)!;
       sub.classList.add('active');
+      sub.removeAttribute('hidden');
     });
   });
+}
+
+function createMetaPill(content: string, tone: 'default' | 'info' | 'warning' = 'default'): HTMLSpanElement {
+  const pill = document.createElement('span');
+  pill.className = 'meta-pill';
+
+  if (tone !== 'default') {
+    pill.classList.add(tone);
+  }
+
+  pill.textContent = content;
+  return pill;
+}
+
+function getModeLabel(testCase: TestCase): string {
+  if (testCase.shapeMode === 'texture') {
+    return 'Texture mode';
+  }
+
+  return 'Box mode';
+}
+
+function getShapeLabel(testCase: TestCase): string {
+  const shape = testCase.drawShape ?? 'rect';
+  if (shape === 'rect') {
+    return 'Rounded rect';
+  }
+
+  return shape.charAt(0).toUpperCase() + shape.slice(1);
+}
+
+function getCSSStrategyLabel(testCase: TestCase): string {
+  if (testCase.shapeMode === 'texture') {
+    return 'CSS: drop-shadow()';
+  }
+
+  return 'CSS: box-shadow';
+}
+
+function getPixiLabel(testCase: TestCase): string {
+  if (testCase.shapeMode === 'texture') {
+    return `${testCase.label.replace(/^TEXTURE:\s*/, '')} · PixiJS`;
+  }
+
+  return `${testCase.label} · PixiJS`;
+}
+
+function createVisualTestCell(testCase: TestCase): HTMLElement {
+  const cell = document.createElement('div');
+  cell.className = 'test-cell';
+  cell.style.minHeight = `${ROW_HEIGHT}px`;
+
+  const header = document.createElement('div');
+  header.className = 'test-cell__header';
+
+  const title = document.createElement('div');
+  title.className = 'test-cell__title';
+  title.textContent = testCase.label.replace(/^TEXTURE:\s*/, '');
+
+  const shadow = document.createElement('code');
+  shadow.className = 'test-cell__shadow';
+  shadow.textContent = testCase.boxShadow;
+
+  const meta = document.createElement('div');
+  meta.className = 'test-cell__meta';
+  meta.appendChild(createMetaPill(getModeLabel(testCase)));
+  meta.appendChild(createMetaPill(getShapeLabel(testCase), 'info'));
+  meta.appendChild(createMetaPill(getCSSStrategyLabel(testCase)));
+
+  if (splitTopLevelCommaList(testCase.boxShadow).length > 1) {
+    meta.appendChild(createMetaPill('Multi-shadow'));
+  }
+
+  if (testCase.boxShadow.includes('inset')) {
+    const tone = testCase.shapeMode === 'texture' ? 'warning' : 'info';
+    const content = testCase.shapeMode === 'texture'
+      ? 'Inset reference falls back to outer drop-shadow()'
+      : 'Inset shadow';
+    meta.appendChild(createMetaPill(content, tone));
+  }
+
+  header.append(title, shadow, meta);
+
+  const preview = document.createElement('div');
+  preview.className = 'test-cell__preview';
+  preview.appendChild(createCSSElement(testCase));
+
+  cell.append(header, preview);
+  return cell;
+}
+
+function updateDemoStats(): void {
+  const stats = getDemoStats();
+  setTextContent('stat-total-cases', String(stats.totalCases));
+  setTextContent('stat-texture-cases', String(stats.textureCases));
+  setTextContent('stat-inset-cases', String(stats.insetCases));
+  setTextContent('stat-multi-cases', String(stats.multiShadowCases));
 }
 
 // ============================================================
@@ -370,23 +528,7 @@ async function initVisualTab() {
   const pixiWrap = document.getElementById('pixi-canvas-wrap')!;
 
   for (const tc of TEST_CASES) {
-    const cell = document.createElement('div');
-    cell.className = 'test-cell';
-    cell.style.minHeight = `${ROW_HEIGHT}px`;
-
-    const label = document.createElement('div');
-    label.className = 'test-label';
-    const isTexture = tc.shapeMode === 'texture';
-    const hasInset = tc.boxShadow.includes('inset');
-    let cssNote = isTexture ? 'filter: drop-shadow()' : 'box-shadow';
-    if (isTexture && hasInset) {
-      cssNote += ' (inset not supported — showing outer)';
-    }
-    label.textContent = `${tc.label}\n${tc.boxShadow}\n[CSS: ${cssNote}]`;
-    cell.appendChild(label);
-
-    cell.appendChild(createCSSElement(tc));
-    cssColumn.appendChild(cell);
+    cssColumn.appendChild(createVisualTestCell(tc));
   }
 
   const app = new Application();
@@ -402,12 +544,14 @@ async function initVisualTab() {
   pixiWrap.appendChild(app.canvas);
 
   const labelStyle = new TextStyle({
-    fontFamily: 'SF Mono, Fira Code, monospace',
-    fontSize: 11,
-    fill: '#777777',
+    fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
+    fontSize: 13,
+    fontWeight: '600',
+    fill: '#27272a',
     align: 'center',
     wordWrap: true,
-    wordWrapWidth: 300,
+    wordWrapWidth: 320,
+    lineHeight: 18,
   });
 
   for (let i = 0; i < TEST_CASES.length; i++) {
@@ -416,16 +560,16 @@ async function initVisualTab() {
     rowContainer.y = i * ROW_HEIGHT;
     app.stage.addChild(rowContainer);
 
-    const label = new Text({ text: `${tc.label} (PixiJS)`, style: labelStyle });
+    const label = new Text({ text: getPixiLabel(tc), style: labelStyle });
     label.anchor.set(0.5, 0);
     label.x = CANVAS_WIDTH / 2;
-    label.y = 15;
+    label.y = 18;
     rowContainer.addChild(label);
 
     const gfx = new Graphics();
     drawShapeForTestCase(gfx, tc);
     gfx.x = (CANVAS_WIDTH - tc.boxWidth) / 2;
-    gfx.y = (ROW_HEIGHT - tc.boxHeight) / 2 + 10;
+    gfx.y = (ROW_HEIGHT - tc.boxHeight) / 2 + 18;
 
     const filter = new BoxShadowFilter({
       boxShadow: tc.boxShadow,
@@ -448,6 +592,7 @@ let perfSizeApp: Application | null = null;
 
 class FPSTracker {
   private lastTime = performance.now();
+  private lastDisplayTime = performance.now();
   private el: HTMLElement;
   private frameTimes: number[] = [];
 
@@ -460,17 +605,23 @@ class FPSTracker {
     this.frameTimes.push(now - this.lastTime);
     this.lastTime = now;
 
-    if (this.frameTimes.length >= 60) {
+    const shouldUpdateDisplay = this.frameTimes.length >= 60 || (
+      this.frameTimes.length > 1 && now - this.lastDisplayTime >= 250
+    );
+
+    if (shouldUpdateDisplay) {
       const avg = this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length;
       const fps = 1000 / avg;
       this.el.textContent = `FPS: ${fps.toFixed(1)}  |  Frame: ${avg.toFixed(2)}ms`;
       this.frameTimes = [];
+      this.lastDisplayTime = now;
     }
   }
 
   reset() {
     this.frameTimes = [];
     this.lastTime = performance.now();
+    this.lastDisplayTime = this.lastTime;
     this.el.textContent = '–';
   }
 }
@@ -556,8 +707,12 @@ async function initPerfSizeTest() {
 }
 
 function perfAnimate() {
-  if (!perfRunning || !perfColorTest || !perfSizeTest) return;
-  if (canvasPaused) return;
+  if (!perfRunning || !perfColorTest || !perfSizeTest) {
+    return;
+  }
+  if (canvasPaused) {
+    return;
+  }
 
   const elapsed = performance.now() - perfStartTime;
   const t = (Math.sin(elapsed * 0.003) + 1) * 0.5;
@@ -648,6 +803,7 @@ function stopPerfAnimations() {
 // ============================================================
 
 async function init() {
+  updateDemoStats();
   setupTabs();
   await initVisualTab();
 }

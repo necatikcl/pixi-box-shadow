@@ -1,14 +1,3 @@
-// pixi-box-shadow — WGSL Shader (WebGPU)
-//
-// Two shape modes:
-//   shapeMode 0 ('box')     — analytical SDF rounded-rectangle, O(1) per pixel
-//   shapeMode 1 ('texture') — two-pass separable Gaussian blur on alpha channel
-//                              (CSS filter: drop-shadow() approach)
-//
-// In texture mode, the alpha channel is pre-blurred by the two-pass blur
-// pipeline in BoxShadowFilter.apply(). This shader reads the pre-blurred
-// alpha from the uBlurredAlpha texture for perfect Gaussian quality.
-
 struct GlobalFilterUniforms {
   uInputSize: vec4<f32>,
   uInputPixel: vec4<f32>,
@@ -30,6 +19,7 @@ struct BoxShadowUniforms {
   uShadowColor: array<vec4<f32>, 8>,
   uShadowInset: array<vec4<f32>, 2>,
   uMaxSigma: f32,
+  uRenderElement: i32,
 };
 
 @group(0) @binding(0) var<uniform> gfu: GlobalFilterUniforms;
@@ -37,7 +27,6 @@ struct BoxShadowUniforms {
 @group(0) @binding(2) var uSampler: sampler;
 
 @group(1) @binding(0) var<uniform> bsu: BoxShadowUniforms;
-// Pre-blurred alpha texture (texture mode only, set by apply() pipeline)
 @group(1) @binding(1) var uBlurredAlpha: texture_2d<f32>;
 @group(1) @binding(2) var uBlurredAlphaSampler: sampler;
 
@@ -120,27 +109,20 @@ fn getShadowInset(index: i32) -> f32 {
   return v.w;
 }
 
-// Read pre-blurred alpha with spread adjustment (texture mode)
-
 fn readBlurredAlpha(uv: vec2<f32>, sigma: f32, spread: f32) -> f32 {
   var alpha: f32;
 
   if (sigma < 0.5) {
-    // No blur — use original alpha directly
     alpha = textureSample(uTexture, uSampler, uv).a;
   } else {
-    // Read from the pre-blurred alpha texture (blurred at uMaxSigma).
     alpha = textureSample(uBlurredAlpha, uBlurredAlphaSampler, uv).a;
   }
 
-  // Spread adjustment: remap the alpha transition to expand or shrink the shadow.
+  // Spread: use gaussianCDF to find the new edge alpha, then remap
   if (abs(spread) > 0.01) {
     let effectiveSigma = max(sigma, 0.5);
-    let gradient = 1.0 / (effectiveSigma * 2.5066);
-    let shift = spread * gradient;
-    let threshold = 0.5 - shift;
-    let range = max(1.0 - abs(shift) * 2.0, 0.2);
-    alpha = clamp((alpha - threshold) / range, 0.0, 1.0);
+    let edgeAlpha = gaussianCDF(-spread, effectiveSigma);
+    alpha = smoothstep(0.0, edgeAlpha * 2.0, alpha);
   }
 
   return alpha;
@@ -179,12 +161,14 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
     let shadowCol = bsu.uShadowColor[i];
     let isInset = getShadowInset(i);
 
+    // Skip shadows with zero alpha (per-group rendering)
+    if (shadowCol.a < 0.001) { continue; }
+
     let sigma = blur * 0.5;
 
     var shadowValue: f32;
 
     if (bsu.uShapeMode == 1) {
-      // Texture mode: read pre-blurred alpha
       let offsetUV = offset * gfu.uInputSize.zw;
       var spreadArg: f32;
       if (isInset > 0.5) {
@@ -195,9 +179,6 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
       let sampledAlpha = readBlurredAlpha(input.uv - offsetUV, sigma, spreadArg);
 
       if (isInset > 0.5) {
-        // Inset: shadow where blurred alpha (at offset pos) < original alpha.
-        // Using subtraction instead of (1-blurred)*inside avoids
-        // bright-edge artifacts at antialiased shape boundaries.
         shadowValue = clamp(insideElement - sampledAlpha, 0.0, 1.0);
       } else {
         shadowValue = sampledAlpha;
@@ -210,7 +191,6 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
         outerResult = outerResult + shadow * (1.0 - outerResult.a);
       }
     } else {
-      // Box mode: analytical SDF (unchanged)
       let shadowP = p - offset;
 
       if (isInset > 0.5) {
@@ -232,16 +212,18 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
     }
   }
 
-  // Composite in CSS order:
-  // 1. Outer shadows
-  var color = outerResult;
-  // 2. Texture on top
-  color = texColor + color * (1.0 - texColor.a);
-  // 3. Inset shadows on top of texture
-  color = vec4<f32>(
-    insetResult.rgb + color.rgb * (1.0 - insetResult.a),
-    insetResult.a + color.a * (1.0 - insetResult.a)
-  );
-
-  return color;
+  // Compositing
+  if (bsu.uRenderElement == 1) {
+    // Full composite: outer shadows + element + inset shadows
+    var color = outerResult;
+    color = texColor + color * (1.0 - texColor.a);
+    color = vec4<f32>(
+      insetResult.rgb + color.rgb * (1.0 - insetResult.a),
+      insetResult.a + color.a * (1.0 - insetResult.a)
+    );
+    return color;
+  } else {
+    // Shadows only (no element) — intermediate per-sigma pass
+    return outerResult;
+  }
 }

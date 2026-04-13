@@ -5,19 +5,10 @@
 //   shapeMode 1 ('texture') — two-pass separable Gaussian blur on alpha channel
 //                              (CSS filter: drop-shadow() approach)
 //
-// In texture mode, the alpha channel is pre-blurred by the two-pass blur
-// pipeline in BoxShadowFilter.apply(). This shader reads the pre-blurred
-// alpha from the uBlurredAlpha sampler for perfect Gaussian quality.
-//
 // Compositing order (matches CSS spec):
 //   1. Outer shadows — behind the element
 //   2. Element texture — the actual rendered content
 //   3. Inset shadows — on top of element background, below content
-//
-// References:
-//   - Evan Wallace: https://madebyevan.com/shaders/fast-rounded-rectangle-shadows/
-//   - Raph Levien: https://raphlinus.github.io/graphics/2020/04/21/blurred-rounded-rects.html
-//   - Inigo Quilez SDF: https://iquilezles.org/articles/distfunctions2d/
 
 precision highp float;
 
@@ -40,9 +31,10 @@ uniform vec4 uShadowOffsetBlurSpread[8];
 uniform vec4 uShadowColor[8];
 uniform float uShadowInset[8];
 
-uniform int uShapeMode;   // 0 = box (SDF), 1 = texture (pre-blurred alpha)
-uniform int uQuality;     // kept for backward compat (unused in texture mode)
-uniform float uMaxSigma;  // sigma used for the blur passes (texture mode)
+uniform int uShapeMode;       // 0 = box (SDF), 1 = texture
+uniform int uQuality;         // kept for backward compat
+uniform float uMaxSigma;      // sigma used for the blur passes
+uniform int uRenderElement;   // 1 = composite element+shadows, 0 = shadows only
 
 // ============================================================
 // Fast erf approximation (Abramowitz & Stegun 7.1.26)
@@ -103,28 +95,22 @@ float readBlurredAlpha(vec2 uv, float sigma, float spread) {
     float alpha;
 
     if (sigma < 0.5) {
-        // No blur — use original alpha directly
         alpha = texture(uTexture, uv).a;
     } else {
-        // Read from the pre-blurred alpha texture (blurred at uMaxSigma).
-        // For shadows with sigma < maxSigma, the blur is wider than needed.
-        // The spread/threshold adjustment below partially compensates.
         alpha = texture(uBlurredAlpha, uv).a;
     }
 
-    // Spread adjustment: remap the alpha transition to expand or shrink the shadow.
-    // This shifts the 50% crossing point by `spread` pixels worth of gradient.
-    // Unlike direct addition, this remapping preserves α=0 for transparent areas
-    // (no "background" artifact) and α=1 for fully opaque areas.
+    // Spread: expand or shrink the shadow shape.
+    // Use gaussianCDF to find the alpha value at the new edge position,
+    // then remap with smoothstep so α=0 stays 0 and α=1 stays 1.
     if (abs(spread) > 0.01) {
         float effectiveSigma = max(sigma, 0.5);
-        float gradient = 1.0 / (effectiveSigma * 2.5066);
-        float shift = spread * gradient;
-        // Threshold: where the original 0.5 crossing now maps to
-        float threshold = 0.5 - shift;
-        // Rescale so the transition still spans roughly [0, 1]
-        float range = max(1.0 - abs(shift) * 2.0, 0.2);
-        alpha = clamp((alpha - threshold) / range, 0.0, 1.0);
+        // gaussianCDF(-spread, sigma) gives the alpha at distance `spread`
+        // from the original edge. This becomes our new 50% crossing point.
+        float edgeAlpha = gaussianCDF(-spread, effectiveSigma);
+        // Remap: values below 0 stay 0, the new edge maps to ~0.5,
+        // and values above map toward 1.
+        alpha = smoothstep(0.0, edgeAlpha * 2.0, alpha);
     }
 
     return alpha;
@@ -162,6 +148,9 @@ void main(void) {
         vec4 shadowCol = uShadowColor[i];
         float isInset = uShadowInset[i];
 
+        // Skip shadows with zero alpha (used for per-group rendering)
+        if (shadowCol.a < 0.001) continue;
+
         float sigma = blur * 0.5;
         float shadowValue;
 
@@ -175,9 +164,6 @@ void main(void) {
             );
 
             if (isInset > 0.5) {
-                // Inset: shadow where blurred alpha (at offset pos) < original alpha.
-                // Using subtraction instead of (1-blurred)*inside avoids
-                // bright-edge artifacts at antialiased shape boundaries.
                 shadowValue = clamp(insideElement - sampledAlpha, 0.0, 1.0);
             } else {
                 shadowValue = sampledAlpha;
@@ -212,18 +198,18 @@ void main(void) {
         }
     }
 
-    // Composite in CSS order:
-    // 1. Start with outer shadows
-    vec4 color = outerResult;
-
-    // 2. Layer the original texture on top of outer shadows
-    color = texColor + color * (1.0 - texColor.a);
-
-    // 3. Layer inset shadows on top of the texture
-    color = vec4(
-        insetResult.rgb + color.rgb * (1.0 - insetResult.a),
-        insetResult.a + color.a * (1.0 - insetResult.a)
-    );
-
-    finalColor = color;
+    // Compositing
+    if (uRenderElement == 1) {
+        // Full composite: outer shadows + element + inset shadows
+        vec4 color = outerResult;
+        color = texColor + color * (1.0 - texColor.a);
+        color = vec4(
+            insetResult.rgb + color.rgb * (1.0 - insetResult.a),
+            insetResult.a + color.a * (1.0 - insetResult.a)
+        );
+        finalColor = color;
+    } else {
+        // Shadows only (no element) — used for intermediate per-sigma passes
+        finalColor = outerResult;
+    }
 }

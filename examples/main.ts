@@ -410,11 +410,21 @@ async function initVisualTab() {
     wordWrapWidth: 300,
   });
 
+  const borderColor = 0xe3e3e7;
+
   for (let i = 0; i < TEST_CASES.length; i++) {
     const tc = TEST_CASES[i];
     const rowContainer = new Container();
     rowContainer.y = i * ROW_HEIGHT;
     app.stage.addChild(rowContainer);
+
+    if (i > 0) {
+      const divider = new Graphics();
+      divider.moveTo(0, 0);
+      divider.lineTo(CANVAS_WIDTH, 0);
+      divider.stroke({ width: 1, color: borderColor });
+      rowContainer.addChild(divider);
+    }
 
     const label = new Text({ text: `${tc.label} (PixiJS)`, style: labelStyle });
     label.anchor.set(0.5, 0);

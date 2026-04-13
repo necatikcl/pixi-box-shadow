@@ -3,7 +3,9 @@ import { BoxShadowFilter } from '../src/index';
 
 declare global {
   interface Window {
-    __runTextureBackendBenchmark?: () => Promise<TextureBackendBenchmarkResult | null>;
+    __runTextureBackendBenchmark?: (
+      config?: Partial<TextureBackendBenchmarkConfig>
+    ) => Promise<TextureBackendBenchmarkResult | null>;
   }
 }
 
@@ -531,6 +533,13 @@ interface TextureBackendBenchmarkResult {
   improvementPct: number;
 }
 
+interface TextureBackendBenchmarkConfig {
+  rounds: number;
+  warmupFrames: number;
+  measuredFrames: number;
+  workMultiplier: number;
+}
+
 async function initPerfColorTest() {
   const container = document.getElementById('perf-pixi-color-container')!;
   const app = new Application();
@@ -688,7 +697,27 @@ function median(values: number[]): number {
   return sorted[mid];
 }
 
-async function runTextureBackendBenchmark(): Promise<TextureBackendBenchmarkResult | null> {
+function normalizePositiveInt(value: number | undefined, fallback: number, min: number, max: number): number {
+  if (value === undefined) return fallback;
+  const rounded = Math.round(value);
+  if (!Number.isFinite(rounded)) return fallback;
+  if (rounded < min) return min;
+  if (rounded > max) return max;
+  return rounded;
+}
+
+function resolveBenchmarkConfig(config?: Partial<TextureBackendBenchmarkConfig>): TextureBackendBenchmarkConfig {
+  return {
+    rounds: normalizePositiveInt(config?.rounds, 9, 1, 20),
+    warmupFrames: normalizePositiveInt(config?.warmupFrames, 48, 1, 2000),
+    measuredFrames: normalizePositiveInt(config?.measuredFrames, 240, 1, 10000),
+    workMultiplier: normalizePositiveInt(config?.workMultiplier, 2, 1, 16),
+  };
+}
+
+async function runTextureBackendBenchmark(
+  config?: Partial<TextureBackendBenchmarkConfig>
+): Promise<TextureBackendBenchmarkResult | null> {
   if (!perfTextureExactApp || !perfTextureLinearApp || !perfTextureExactTest || !perfTextureLinearTest) {
     await startPerfAnimations();
   }
@@ -697,10 +726,8 @@ async function runTextureBackendBenchmark(): Promise<TextureBackendBenchmarkResu
     return null;
   }
 
-  const rounds = 3;
-  const warmupFrames = 2;
-  const measuredFrames = 8;
-  const workMultiplier = 1;
+  const benchmarkConfig = resolveBenchmarkConfig(config);
+  const { rounds, warmupFrames, measuredFrames, workMultiplier } = benchmarkConfig;
   const exactFrameMs: number[] = [];
   const linearFrameMs: number[] = [];
 

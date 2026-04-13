@@ -3,8 +3,6 @@ import { writeFileSync } from 'node:fs';
 
 const PERF_TAB_SELECTOR = '.tab-btn[data-tab="perf"]';
 const BACKEND_SUBTAB_SELECTOR = '.sub-tab-btn[data-subtab="backend"]';
-const RUN_BENCH_SELECTOR = '#btn-run-backend-benchmark';
-const SPEEDUP_SELECTOR = '#texture-backend-speedup';
 const URL = process.env.BENCH_URL ?? 'http://localhost:5173/';
 const INITIAL_WARMUP_MS = 7000;
 const OUTPUT_PREFIX = process.env.BENCH_OUTPUT_PREFIX ?? 'texture-backend-benchmark-run-1';
@@ -27,22 +25,21 @@ async function runBenchmark() {
     const result = await page.evaluate(async () => {
       const run = window.__runTextureBackendBenchmark;
       if (!run) return null;
-      return run();
+      return run({
+        rounds: 3,
+        warmupFrames: 24,
+        measuredFrames: 120,
+        workMultiplier: 1,
+      });
     });
-
-    const screenshotPath = `/opt/cursor/artifacts/${OUTPUT_PREFIX}.png`;
-    await page.screenshot({ path: screenshotPath, fullPage: false, timeout: 0 });
 
     if (!result) {
       throw new Error('Unable to collect benchmark result from page helper.');
     }
 
-    const uiSpeedupText = (await page.textContent(SPEEDUP_SELECTOR))?.trim() ?? '';
     const output = {
       url: URL,
       ...result,
-      uiSpeedupText,
-      screenshotPath,
     };
     writeFileSync(`/opt/cursor/artifacts/${OUTPUT_PREFIX}.json`, `${JSON.stringify(output, null, 2)}\n`, 'utf8');
 

@@ -120,23 +120,22 @@ circle.filters = [new BoxShadowFilter({
 })];
 ```
 
-Texture mode uses multi-tap Gaussian-weighted sampling. The `quality` option controls the base sample count (automatically scaled up for large blurs):
+Texture mode now supports two blur backends:
 
-| Quality | Base samples | Use case |
+| Backend | Description | Best for |
 |---|---|---|
-| 1 | 16 | Fast preview, small blur values |
-| 2 | 32 | Good balance |
-| **3** (default) | **48** | Recommended for most use cases |
-| 4 | 64 | High quality, large blurs |
-| 5 | 80 | Maximum quality |
+| **`'linear'` (default)** | Linear-sampling optimized separable Gaussian blur | Faster runtime with near-identical visuals |
+| `'exact'` | Reference separable Gaussian blur | Validation / parity checks |
 
 ```typescript
 const filter = new BoxShadowFilter({
   boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
   shapeMode: 'texture',
-  quality: 4,
+  textureBlurBackend: 'linear',
 });
 ```
+
+`quality` is kept for backward compatibility and currently has no visual/runtime effect.
 
 ### Updating at Runtime
 
@@ -150,7 +149,7 @@ filter.borderRadius = [0, 16, 16, 0];
 
 // Switch shape mode at runtime
 filter.shapeMode = 'texture';
-filter.quality = 4;
+filter.textureBlurBackend = 'exact';
 ```
 
 ### Animating Shadows (fast path)
@@ -210,7 +209,8 @@ new BoxShadowFilter(options?: BoxShadowFilterOptions)
 | `shadows` | `(BoxShadowOptions \| string)[]` | `[]` | Array of shadow definitions (objects or individual CSS strings). |
 | `borderRadius` | `number \| [number, number, number, number]` | `0` | Corner radii in pixels. Single number = all corners. Array = `[TL, TR, BR, BL]`. Only used in `'box'` mode. |
 | `shapeMode` | `'box' \| 'texture'` | `'box'` | `'box'` = analytical SDF (fastest). `'texture'` = alpha-channel sampling (any shape). |
-| `quality` | `number` (1–5) | `3` | Base sample count for texture mode. Automatically scaled for large blurs. Ignored in box mode. |
+| `textureBlurBackend` | `'linear' \| 'exact'` | `'linear'` | Texture-mode blur backend (`'linear'` is faster, `'exact'` is reference). |
+| `quality` | `number` (1–5) | `3` | Reserved for backward compatibility. Currently no effect. |
 
 #### Properties
 
@@ -222,7 +222,8 @@ new BoxShadowFilter(options?: BoxShadowFilterOptions)
 | `elementHeight` | `number` (readonly) | Current detected element height. |
 | `borderRadius` | `number \| [...]` (get/set) | Border radius. |
 | `shapeMode` | `'box' \| 'texture'` (get/set) | Shadow shape computation mode. |
-| `quality` | `number` (get/set) | Texture sampling quality (1–5). |
+| `textureBlurBackend` | `'linear' \| 'exact'` (get/set) | Texture-mode backend selection. |
+| `quality` | `number` (get/set) | Reserved for backward compatibility. |
 | `uniforms` | `object` | Direct access to GPU uniform arrays (for animation). |
 
 ### `BoxShadowOptions`
@@ -269,9 +270,9 @@ If you need more than 8, stack multiple `BoxShadowFilter` instances. But 8 cover
 | | Box mode (default) | Texture mode |
 |---|---|---|
 | **Shape support** | Rounded rectangles only | Any shape |
-| **Per-pixel cost** | O(1) — a few `erf` evaluations | O(quality × 16) texture reads (auto-scaled for large blurs) |
+| **Per-pixel cost** | O(1) — a few `erf` evaluations | O(radius) Gaussian blur taps (exact or linear-optimized) |
 | **Best for** | UI panels, cards, buttons | Sprites, icons, text, complex shapes |
-| **Blur cost scaling** | None — constant regardless of blur | None — fixed sample budget per quality level |
+| **Blur cost scaling** | None — constant regardless of blur | Increases with sigma (Gaussian kernel radius) |
 
 Both modes are single-pass with no offscreen textures for the shadow itself.
 
@@ -288,9 +289,17 @@ Each blur pass costs GPU time proportional to the blur radius. A 50px blur needs
 
 ### Texture mode performance
 
-Texture mode uses a golden-angle spiral disc sampling pattern with Gaussian weighting. The sample count auto-scales with blur size (up to 4x for large blurs, capped at 256 samples) to maintain consistent quality.
+Texture mode uses a two-pass separable Gaussian blur:
+- Pass 1: horizontal blur on alpha
+- Pass 2: vertical blur on alpha
+- Pass 3: composite with shadows + element
 
-Use quality 1–2 for preview / mobile, 3 for desktop, 4–5 for high-fidelity.
+For blur-heavy workloads, `textureBlurBackend: 'linear'` reduces texture fetches by pairing taps through bilinear sampling.
+
+Measured with `node scripts/benchmark-texture-backend-node.mjs` (default profile):
+- **Exact median frame cost:** `4.1701 ms`
+- **Linear median frame cost:** `2.4101 ms`
+- **Speedup:** **`1.73x`** (**`+42.2%`** faster)
 
 ### Idle behavior
 
@@ -325,7 +334,7 @@ filter.uniforms.uShadowColor[3] = 0.6;      // alpha (0–1)
 | `uElementSize` | `Float32Array(2)` | `[width, height]` (auto-detected) |
 | `uBorderRadius` | `Float32Array(4)` | `[TL, TR, BR, BL]` corner radii |
 | `uShapeMode` | `number` | `0` = box, `1` = texture |
-| `uQuality` | `number` | Texture mode sample multiplier (1–5) |
+| `uQuality` | `number` | Reserved for backward compatibility |
 
 ---
 
@@ -355,9 +364,13 @@ src/
 ├── utils.ts              # Color/math helpers
 ├── index.ts              # Public exports
 └── shaders/
-    ├── box-shadow.vert   # Vertex shader (GLSL)
-    ├── box-shadow.frag   # Fragment shader (GLSL) — the core shadow algorithm
-    └── box-shadow.wgsl   # Fragment + vertex shader (WGSL for WebGPU)
+    ├── box-shadow.vert         # Vertex shader (GLSL)
+    ├── box-shadow.frag         # Composite shader (GLSL)
+    ├── box-shadow.wgsl         # Composite shader (WGSL)
+    ├── alpha-blur.frag         # Exact 1D Gaussian blur (GLSL)
+    ├── alpha-blur.wgsl         # Exact 1D Gaussian blur (WGSL)
+    ├── alpha-blur-linear.frag  # Linear-optimized blur (GLSL)
+    └── alpha-blur-linear.wgsl  # Linear-optimized blur (WGSL)
 ```
 
 ---
@@ -404,12 +417,12 @@ This produces a smooth Gaussian-like falloff that closely matches the true analy
 When `shapeMode` is `'texture'`, the shader doesn't assume any geometric shape. Instead, for each shadow it:
 
 1. Offsets the texture coordinate by the shadow's `(offsetX, offsetY)`
-2. Samples the element's alpha channel at the center point plus many points in a disc
-3. Weights all samples using a Gaussian kernel (`exp(-d²/2σ²)`)
-4. Applies spread adjustment via alpha bias/rescale
-5. Uses the result as the shadow intensity
+2. Uses a separable Gaussian blur on the alpha channel (horizontal then vertical)
+3. Optionally uses linear-sampling tap pairing (`textureBlurBackend: 'linear'`) to reduce fetches
+4. Applies spread adjustment in the composite shader
+5. Uses the blurred alpha as shadow intensity
 
-The sampling pattern uses a **golden-angle spiral** (`θ = i × 2.39996...`) which distributes points evenly across a disc without clustering. The disc radius extends to 3σ (covering 99.7% of the Gaussian). Sample count automatically scales up to 4x for large blurs (σ > 8px) to maintain consistent quality.
+This keeps Gaussian quality while allowing a faster backend for blur-heavy scenes.
 
 ### The `erf` approximation
 

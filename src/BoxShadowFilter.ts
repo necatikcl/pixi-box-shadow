@@ -202,6 +202,35 @@ export class BoxShadowFilter extends Filter {
   }
 
   // ----------------------------------------------------------------
+  // Gaussian blur helper: H + V passes at given sigma
+  // ----------------------------------------------------------------
+
+  /**
+   * Run a two-pass separable Gaussian blur on input's alpha channel.
+   * Returns the blurred texture (caller must return it to TexturePool).
+   */
+  private _blurAlpha(filterManager: FilterSystem, input: Texture, sigma: number): Texture {
+    const blurFilter = this._ensureBlurFilter();
+    const blurUniforms = blurFilter.resources.alphaBlurUniforms.uniforms;
+
+    // Horizontal pass
+    const tempH = TexturePool.getSameSizeTexture(input);
+    blurUniforms.uDirection[0] = 1;
+    blurUniforms.uDirection[1] = 0;
+    blurUniforms.uStrength = sigma;
+    filterManager.applyFilter(blurFilter, input, tempH, true);
+
+    // Vertical pass
+    const tempV = TexturePool.getSameSizeTexture(input);
+    blurUniforms.uDirection[0] = 0;
+    blurUniforms.uDirection[1] = 1;
+    filterManager.applyFilter(blurFilter, tempH, tempV, true);
+
+    TexturePool.returnTexture(tempH);
+    return tempV;
+  }
+
+  // ----------------------------------------------------------------
   // Filter apply — always derive size from input texture
   // ----------------------------------------------------------------
 
@@ -223,16 +252,17 @@ export class BoxShadowFilter extends Filter {
       return;
     }
 
-    // Texture mode: two-pass separable Gaussian blur + composite
+    // Texture mode: per-sigma blur passes + composite
     this._applyTextureMode(filterManager, input, output, clearMode);
   }
 
   /**
-   * Texture mode: apply two-pass separable Gaussian blur on the input
-   * alpha channel, then composite with the original texture.
+   * Texture mode: for each unique blur sigma among the shadows, run a
+   * separate two-pass Gaussian blur. Then composite all shadows that
+   * share each sigma in one pass.
    *
-   * This replicates how CSS `filter: drop-shadow()` works in browser
-   * engines, producing mathematically correct Gaussian blur.
+   * This ensures every shadow gets blurred at its exact sigma —
+   * no interpolation, no approximation.
    */
   private _applyTextureMode(
     filterManager: FilterSystem,
@@ -240,58 +270,117 @@ export class BoxShadowFilter extends Filter {
     output: RenderSurface,
     clearMode: boolean,
   ): void {
-    // Find the maximum sigma across all shadows that need blur
-    let maxSigma = 0;
-    for (const shadow of this._shadows) {
-      const sigma = shadow.blur * 0.5;
-      if (sigma > maxSigma) maxSigma = sigma;
-    }
-
-    // If no shadow needs blur, skip the blur passes
-    if (maxSigma < 0.5) {
-      // Set empty blurred alpha texture — shader will use original alpha
-      this.resources.uBlurredAlpha = Texture.EMPTY.source;
-      this.resources.uBlurredAlphaSampler = Texture.EMPTY.source.style;
+    const shadows = this._shadows;
+    if (shadows.length === 0) {
       filterManager.applyFilter(this, input, output, clearMode);
       return;
     }
 
-    const blurFilter = this._ensureBlurFilter();
-    const blurUniforms = blurFilter.resources.alphaBlurUniforms.uniforms;
+    // ── Group shadows by sigma ───────────────────────────────
+    // Each group: { sigma, indices[] }
+    const groups: { sigma: number; indices: number[] }[] = [];
+    for (let i = 0; i < shadows.length; i++) {
+      const sigma = shadows[i].blur * 0.5;
+      let group = groups.find(g => Math.abs(g.sigma - sigma) < 0.01);
+      if (!group) {
+        group = { sigma, indices: [] };
+        groups.push(group);
+      }
+      group.indices.push(i);
+    }
 
-    // ── Pass 1: Horizontal blur ──────────────────────────────
-    const tempH = TexturePool.getSameSizeTexture(input);
+    // ── For each sigma group: blur + composite ───────────────
+    // We need to save/restore shadow uniforms since we'll temporarily
+    // set only the active subset. Store the original state.
+    const origCount = this.uniforms.uShadowCount;
+    const origObs = new Float32Array(this.uniforms.uShadowOffsetBlurSpread);
+    const origCol = new Float32Array(this.uniforms.uShadowColor);
+    const origInset = new Float32Array(this.uniforms.uShadowInset);
 
-    blurUniforms.uDirection[0] = 1;
-    blurUniforms.uDirection[1] = 0;
-    blurUniforms.uStrength = maxSigma;
+    // If there's only one group, we can render directly to output.
+    // Otherwise we need to accumulate via ping-pong textures.
+    const needsAccum = groups.length > 1;
+    let accumTexture: Texture | null = null;
 
-    filterManager.applyFilter(blurFilter, input, tempH, true);
+    for (let gi = 0; gi < groups.length; gi++) {
+      const group = groups[gi];
+      const isLastGroup = gi === groups.length - 1;
 
-    // ── Pass 2: Vertical blur ────────────────────────────────
-    const tempV = TexturePool.getSameSizeTexture(input);
+      // ── Blur at this group's sigma ─────────────────────────
+      let blurredTex: Texture | null = null;
+      if (group.sigma >= 0.5) {
+        blurredTex = this._blurAlpha(filterManager, input, group.sigma);
+        this.resources.uBlurredAlpha = blurredTex.source;
+        this.resources.uBlurredAlphaSampler = blurredTex.source.style;
+      } else {
+        this.resources.uBlurredAlpha = Texture.EMPTY.source;
+        this.resources.uBlurredAlphaSampler = Texture.EMPTY.source.style;
+      }
+      this.uniforms.uMaxSigma = group.sigma;
 
-    blurUniforms.uDirection[0] = 0;
-    blurUniforms.uDirection[1] = 1;
-    // uStrength stays the same
+      // ── Set only this group's shadows active ───────────────
+      // Put the group's shadows into sequential slots starting at 0
+      const count = group.indices.length;
+      this.uniforms.uShadowCount = count;
 
-    filterManager.applyFilter(blurFilter, tempH, tempV, true);
+      for (let si = 0; si < MAX_SHADOWS; si++) {
+        const idx4 = si * 4;
+        if (si < count) {
+          const origIdx = group.indices[si];
+          const oi4 = origIdx * 4;
+          this.uniforms.uShadowOffsetBlurSpread[idx4 + 0] = origObs[oi4 + 0];
+          this.uniforms.uShadowOffsetBlurSpread[idx4 + 1] = origObs[oi4 + 1];
+          this.uniforms.uShadowOffsetBlurSpread[idx4 + 2] = origObs[oi4 + 2];
+          this.uniforms.uShadowOffsetBlurSpread[idx4 + 3] = origObs[oi4 + 3];
+          this.uniforms.uShadowColor[idx4 + 0] = origCol[oi4 + 0];
+          this.uniforms.uShadowColor[idx4 + 1] = origCol[oi4 + 1];
+          this.uniforms.uShadowColor[idx4 + 2] = origCol[oi4 + 2];
+          this.uniforms.uShadowColor[idx4 + 3] = origCol[oi4 + 3];
+          this.uniforms.uShadowInset[si] = origInset[origIdx];
+        } else {
+          this.uniforms.uShadowOffsetBlurSpread[idx4 + 0] = 0;
+          this.uniforms.uShadowOffsetBlurSpread[idx4 + 1] = 0;
+          this.uniforms.uShadowOffsetBlurSpread[idx4 + 2] = 0;
+          this.uniforms.uShadowOffsetBlurSpread[idx4 + 3] = 0;
+          this.uniforms.uShadowColor[idx4 + 0] = 0;
+          this.uniforms.uShadowColor[idx4 + 1] = 0;
+          this.uniforms.uShadowColor[idx4 + 2] = 0;
+          this.uniforms.uShadowColor[idx4 + 3] = 0;
+          this.uniforms.uShadowInset[si] = 0;
+        }
+      }
 
-    // Return the horizontal temp immediately
-    TexturePool.returnTexture(tempH);
+      // ── Composite pass ─────────────────────────────────────
+      if (!needsAccum) {
+        // Single sigma group: render directly to output
+        filterManager.applyFilter(this, input, output, clearMode);
+      } else if (isLastGroup) {
+        // Last group in multi-group: render to final output
+        // (previous groups accumulated in accumTexture)
+        filterManager.applyFilter(this, input, output, clearMode);
+      } else {
+        // Intermediate group: render to accumulator
+        if (!accumTexture) {
+          accumTexture = TexturePool.getSameSizeTexture(input);
+        }
+        filterManager.applyFilter(this, input, accumTexture, gi === 0);
+      }
 
-    // ── Pass 3: Composite (main box-shadow shader) ───────────
-    // Bind the blurred alpha texture for the composite shader to read
-    this.resources.uBlurredAlpha = tempV.source;
-    this.resources.uBlurredAlphaSampler = tempV.source.style;
-    // Tell the shader what sigma was used for the blur, so it can
-    // interpolate for shadows with smaller blur values.
-    this.uniforms.uMaxSigma = maxSigma;
+      // Return the blurred texture for this group
+      if (blurredTex) {
+        TexturePool.returnTexture(blurredTex);
+      }
+    }
 
-    filterManager.applyFilter(this, input, output, clearMode);
+    // ── Restore original shadow uniforms ─────────────────────
+    this.uniforms.uShadowCount = origCount;
+    this.uniforms.uShadowOffsetBlurSpread.set(origObs);
+    this.uniforms.uShadowColor.set(origCol);
+    this.uniforms.uShadowInset.set(origInset);
 
-    // Return the vertical temp texture to the pool
-    TexturePool.returnTexture(tempV);
+    if (accumTexture) {
+      TexturePool.returnTexture(accumTexture);
+    }
   }
 
   // ----------------------------------------------------------------

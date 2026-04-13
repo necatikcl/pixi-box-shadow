@@ -120,36 +120,30 @@ fn getShadowInset(index: i32) -> f32 {
   return v.w;
 }
 
-// sqrt(2 * PI) ≈ 2.5066
-const SQRT_TWO_PI: f32 = 2.5066;
+// Read pre-blurred alpha with spread adjustment (texture mode)
+// The blurred alpha texture is always blurred at the EXACT sigma for
+// the current shadow group (per-sigma blur in apply()). No interpolation needed.
 
-// Read pre-blurred alpha with multi-sigma and spread (texture mode)
 fn readBlurredAlpha(uv: vec2<f32>, sigma: f32, spread: f32) -> f32 {
-  let originalAlpha = textureSample(uTexture, uSampler, uv).a;
+  var alpha: f32;
 
   if (sigma < 0.5) {
-    // No blur needed — use original alpha directly
-    if (abs(spread) > 0.5) {
-      return clamp(originalAlpha + spread * 0.1, 0.0, 1.0);
-    }
-    return originalAlpha;
+    // No blur — use original alpha directly
+    alpha = textureSample(uTexture, uSampler, uv).a;
+  } else {
+    // Read from the pre-blurred alpha texture
+    alpha = textureSample(uBlurredAlpha, uBlurredAlphaSampler, uv).a;
   }
 
-  let blurredAlpha = textureSample(uBlurredAlpha, uBlurredAlphaSampler, uv).a;
-
-  // Multi-sigma interpolation: the blur was done at uMaxSigma but this
-  // shadow may need a smaller sigma. Interpolate between original (sharp)
-  // and blurred to approximate the correct blur level.
-  let t = clamp(sigma / max(bsu.uMaxSigma, 0.001), 0.0, 1.0);
-  var alpha = mix(originalAlpha, blurredAlpha, t);
-
   // Apply spread adjustment.
-  // The Gaussian CDF gradient at the 50% point is 1/(σ·√(2π)).
-  // Shifting the edge by `spread` pixels adds spread·gradient to alpha.
-  // Positive spread → expand (add), negative → shrink (subtract).
-  if (abs(spread) > 0.5) {
-    let effectiveSigma = max(sigma, 1.0);
-    let gradient = 1.0 / (effectiveSigma * SQRT_TWO_PI);
+  // CSS spec: spread expands (positive) or shrinks (negative) the shadow
+  // shape before blurring. We approximate by shifting the alpha threshold.
+  //
+  // The Gaussian CDF gradient at the edge is approximately 1/(σ·√(2π)).
+  // Shifting by `spread` pixels changes the alpha by spread × gradient.
+  if (abs(spread) > 0.01) {
+    let effectiveSigma = max(sigma, 0.5);
+    let gradient = 1.0 / (effectiveSigma * 2.5066);
     alpha = clamp(alpha + spread * gradient, 0.0, 1.0);
   }
 

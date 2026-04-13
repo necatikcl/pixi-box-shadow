@@ -96,39 +96,33 @@ float roundedBoxShadow(vec2 p, vec2 halfSize, float sigma, vec4 radii) {
 }
 
 // ============================================================
-// Read pre-blurred alpha with multi-sigma and spread (texture mode)
+// Read pre-blurred alpha with spread adjustment (texture mode)
 // ============================================================
 
-// sqrt(2 * PI) ≈ 2.5066
-const float SQRT_TWO_PI = 2.5066;
+// The blurred alpha texture is always blurred at the EXACT sigma for
+// the current shadow group (per-sigma blur in apply()). No interpolation needed.
 
 float readBlurredAlpha(vec2 uv, float sigma, float spread) {
-    float originalAlpha = texture(uTexture, uv).a;
+    float alpha;
 
     if (sigma < 0.5) {
-        // No blur needed — use original alpha directly
-        // Still apply spread as a hard expand/contract
-        if (abs(spread) > 0.5) {
-            return clamp(originalAlpha + spread * 0.1, 0.0, 1.0);
-        }
-        return originalAlpha;
+        // No blur — use original alpha directly
+        alpha = texture(uTexture, uv).a;
+    } else {
+        // Read from the pre-blurred alpha texture
+        alpha = texture(uBlurredAlpha, uv).a;
     }
 
-    float blurredAlpha = texture(uBlurredAlpha, uv).a;
-
-    // Multi-sigma interpolation: the blur was done at uMaxSigma but this
-    // shadow may need a smaller sigma. Interpolate between original (sharp)
-    // and blurred to approximate the correct blur level.
-    float t = clamp(sigma / max(uMaxSigma, 0.001), 0.0, 1.0);
-    float alpha = mix(originalAlpha, blurredAlpha, t);
-
     // Apply spread adjustment.
-    // The Gaussian CDF gradient at the 50% point is 1/(σ·√(2π)).
-    // Shifting the edge by `spread` pixels adds spread·gradient to alpha.
-    // Positive spread → expand (add), negative → shrink (subtract).
-    if (abs(spread) > 0.5) {
-        float effectiveSigma = max(sigma, 1.0);
-        float gradient = 1.0 / (effectiveSigma * SQRT_TWO_PI);
+    // CSS spec: spread expands (positive) or shrinks (negative) the shadow
+    // shape before blurring. We approximate by shifting the alpha threshold.
+    //
+    // The Gaussian CDF gradient at the edge is approximately 1/(σ·√(2π)).
+    // Shifting by `spread` pixels changes the alpha by spread × gradient.
+    if (abs(spread) > 0.01) {
+        float effectiveSigma = max(sigma, 0.5);
+        // Gradient of the Gaussian blur at the edge (steepness of the transition)
+        float gradient = 1.0 / (effectiveSigma * 2.5066);
         alpha = clamp(alpha + spread * gradient, 0.0, 1.0);
     }
 

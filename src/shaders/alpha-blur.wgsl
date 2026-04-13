@@ -16,6 +16,10 @@ struct GlobalFilterUniforms {
 struct AlphaBlurUniforms {
   uDirection: vec2<f32>,
   uStrength: f32,
+  uSigmaExtent: f32,
+  uSampleStride: f32,
+  uMaxRadius: f32,
+  uPad: f32,
 };
 
 @group(0) @binding(0) var<uniform> gfu: GlobalFilterUniforms;
@@ -48,9 +52,6 @@ fn mainVertex(@location(0) aPosition: vec2<f32>) -> VSOutput {
   return output;
 }
 
-// Maximum kernel radius (one side). Limits GPU loop iterations.
-const MAX_KERNEL_RADIUS: i32 = 64;
-
 @fragment
 fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
   let sigma = abu.uStrength;
@@ -61,11 +62,8 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(0.0, 0.0, 0.0, a);
   }
 
-  // Kernel radius: cover 3 sigma for excellent quality (99.7% of Gaussian energy)
-  var radius = i32(ceil(sigma * 3.0));
-  if (radius > MAX_KERNEL_RADIUS) {
-    radius = MAX_KERNEL_RADIUS;
-  }
+  let radiusF = min(ceil(sigma * abu.uSigmaExtent), abu.uMaxRadius);
+  let radius = i32(radiusF);
 
   // Pixel step in texture coordinates for the blur direction
   let pixelStep = abu.uDirection * gfu.uInputSize.zw;
@@ -77,19 +75,20 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
   var totalWeight: f32 = 1.0;
   var totalAlpha: f32 = textureSample(uTexture, uSampler, input.uv).a;
 
-  // Symmetric samples: tap at +i and -i simultaneously
-  for (var i = 1; i <= MAX_KERNEL_RADIUS; i++) {
-    if (i > radius) { break; }
+  var off = abu.uSampleStride;
+  loop {
+    if (off > f32(radius)) { break; }
 
-    let offset = f32(i);
-    let weight = exp(-offset * offset * invTwoSigmaSq);
+    let weight = exp(-off * off * invTwoSigmaSq);
 
-    let uv1 = input.uv + pixelStep * offset;
-    let uv2 = input.uv - pixelStep * offset;
+    let uv1 = input.uv + pixelStep * off;
+    let uv2 = input.uv - pixelStep * off;
 
     totalAlpha += textureSample(uTexture, uSampler, uv1).a * weight;
     totalAlpha += textureSample(uTexture, uSampler, uv2).a * weight;
     totalWeight += 2.0 * weight;
+
+    off += abu.uSampleStride;
   }
 
   let blurredAlpha = totalAlpha / totalWeight;

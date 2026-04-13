@@ -70,13 +70,8 @@ export interface BoxShadowFilterOptions {
   shapeMode?: ShapeMode;
 
   /**
-   * Reserved for future use. Currently has no visual effect.
-   *
-   * The texture-mode blur quality is now inherently high: the two-pass
-   * separable Gaussian blur covers 3σ in each direction, capturing 99.7%
-   * of the Gaussian energy — producing mathematically correct results at
-   * any blur radius.
-   *
+   * Texture-mode blur quality (1 = fastest, 5 = heaviest, closest to full 3σ kernel).
+   * Controls separable Gaussian extent, sample stride, and max kernel radius.
    * Ignored when `shapeMode` is `'box'`.
    * @default 3
    */

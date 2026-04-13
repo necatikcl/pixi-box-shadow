@@ -4,11 +4,13 @@ import type { RenderSurface } from 'pixi.js';
 import type { BoxShadowFilterOptions, BoxShadowOptions, ShapeMode } from './types';
 import { MAX_SHADOWS } from './types';
 import { parseBoxShadow } from './parser';
-import { calculatePadding, normalizeBorderRadius, resolveColor } from './utils';
+import { blurKernelKnobs, calculatePadding, normalizeBorderRadius, resolveColor } from './utils';
 
 import vertexSrc from './shaders/box-shadow.vert?raw';
-import fragmentSrc from './shaders/box-shadow.frag?raw';
-import wgslSrc from './shaders/box-shadow.wgsl?raw';
+import sdfFragmentSrc from './shaders/box-shadow-sdf.frag?raw';
+import sdfWgslSrc from './shaders/box-shadow-sdf.wgsl?raw';
+import textureFragmentSrc from './shaders/box-shadow-texture.frag?raw';
+import textureWgslSrc from './shaders/box-shadow-texture.wgsl?raw';
 
 import blurVertexSrc from './shaders/alpha-blur.vert?raw';
 import blurFragmentSrc from './shaders/alpha-blur.frag?raw';
@@ -67,7 +69,7 @@ export class BoxShadowFilter extends Filter {
    */
   private _blurFilter: Filter | null = null;
 
-  // Typed uniform accessor
+  /** GPU uniforms for the main filter (`texture` mode adds uShapeMode, uQuality, …). */
   public uniforms: {
     uElementSize: Float32Array;
     uPaddingOffset: Float32Array;
@@ -76,10 +78,10 @@ export class BoxShadowFilter extends Filter {
     uShadowOffsetBlurSpread: Float32Array;
     uShadowColor: Float32Array;
     uShadowInset: Float32Array;
-    uShapeMode: number;
-    uQuality: number;
-    uMaxSigma: number;
-    uRenderElement: number;
+    uShapeMode?: number;
+    uQuality?: number;
+    uMaxSigma?: number;
+    uRenderElement?: number;
   };
 
   constructor(options: BoxShadowFilterOptions = {}) {
@@ -107,49 +109,67 @@ export class BoxShadowFilter extends Filter {
 
     const shapeMode: ShapeMode = opts.shapeMode ?? 'box';
     const quality = Math.max(1, Math.min(5, Math.round(opts.quality ?? 3)));
-
-    const glProgram = GlProgram.from({
-      vertex: vertexSrc,
-      fragment: fragmentSrc,
-      name: 'box-shadow-filter',
-    });
-
-    const gpuProgram = GpuProgram.from({
-      vertex: {
-        source: wgslSrc,
-        entryPoint: 'mainVertex',
-      },
-      fragment: {
-        source: wgslSrc,
-        entryPoint: 'mainFragment',
-      },
-    });
+    const isTexture = shapeMode === 'texture';
 
     const shadowOffsetBlurSpread = new Float32Array(MAX_SHADOWS * 4);
     const shadowColor = new Float32Array(MAX_SHADOWS * 4);
     const shadowInset = new Float32Array(MAX_SHADOWS);
 
-    super({
-      gpuProgram,
-      glProgram,
-      resources: {
-        boxShadowUniforms: {
+    const glProgram = GlProgram.from({
+      vertex: vertexSrc,
+      fragment: isTexture ? textureFragmentSrc : sdfFragmentSrc,
+      name: isTexture ? 'box-shadow-texture' : 'box-shadow-sdf',
+    });
+
+    const gpuProgram = GpuProgram.from({
+      vertex: {
+        source: isTexture ? textureWgslSrc : sdfWgslSrc,
+        entryPoint: 'mainVertex',
+      },
+      fragment: {
+        source: isTexture ? textureWgslSrc : sdfWgslSrc,
+        entryPoint: 'mainFragment',
+      },
+    });
+
+    const boxShadowUniforms = isTexture
+      ? {
           uElementSize: { value: new Float32Array([0, 0]), type: 'vec2<f32>' },
           uPaddingOffset: { value: new Float32Array([pad, pad]), type: 'vec2<f32>' },
           uBorderRadius: { value: new Float32Array(borderRadius), type: 'vec4<f32>' },
           uShadowCount: { value: shadows.length, type: 'i32' },
-          uShapeMode: { value: shapeMode === 'texture' ? 1 : 0, type: 'i32' },
+          uShapeMode: { value: 1, type: 'i32' },
           uQuality: { value: quality, type: 'i32' },
+          _pad0: { value: 0, type: 'i32' },
           uShadowOffsetBlurSpread: { value: shadowOffsetBlurSpread, type: 'vec4<f32>', size: MAX_SHADOWS },
           uShadowColor: { value: shadowColor, type: 'vec4<f32>', size: MAX_SHADOWS },
           uShadowInset: { value: shadowInset, type: 'f32', size: MAX_SHADOWS },
           uMaxSigma: { value: 0, type: 'f32' },
           uRenderElement: { value: 1, type: 'i32' },
-        },
-        // Blurred alpha texture (texture mode only) — set dynamically in apply()
-        uBlurredAlpha: Texture.EMPTY.source,
-        uBlurredAlphaSampler: Texture.EMPTY.source.style,
-      },
+        }
+      : {
+          uElementSize: { value: new Float32Array([0, 0]), type: 'vec2<f32>' },
+          uPaddingOffset: { value: new Float32Array([pad, pad]), type: 'vec2<f32>' },
+          uBorderRadius: { value: new Float32Array(borderRadius), type: 'vec4<f32>' },
+          uShadowCount: { value: shadows.length, type: 'i32' },
+          _pad0: { value: 0, type: 'i32' },
+          _pad1: { value: 0, type: 'i32' },
+          _pad2: { value: 0, type: 'i32' },
+          uShadowOffsetBlurSpread: { value: shadowOffsetBlurSpread, type: 'vec4<f32>', size: MAX_SHADOWS },
+          uShadowColor: { value: shadowColor, type: 'vec4<f32>', size: MAX_SHADOWS },
+          uShadowInset: { value: shadowInset, type: 'f32', size: MAX_SHADOWS },
+        };
+
+    super({
+      gpuProgram,
+      glProgram,
+      resources: isTexture
+        ? {
+            boxShadowUniforms,
+            uBlurredAlpha: Texture.EMPTY.source,
+            uBlurredAlphaSampler: Texture.EMPTY.source.style,
+          }
+        : { boxShadowUniforms },
       padding: pad,
       resolution: 'inherit',
     });
@@ -194,6 +214,10 @@ export class BoxShadowFilter extends Filter {
         alphaBlurUniforms: {
           uDirection: { value: new Float32Array([1, 0]), type: 'vec2<f32>' },
           uStrength: { value: 0, type: 'f32' },
+          uSigmaExtent: { value: 3, type: 'f32' },
+          uSampleStride: { value: 1, type: 'f32' },
+          uMaxRadius: { value: 64, type: 'f32' },
+          uPad: { value: 0, type: 'f32' },
         },
       },
       padding: 0,
@@ -335,6 +359,11 @@ export class BoxShadowFilter extends Filter {
     const blurFilter = this._ensureBlurFilter();
     const blurUniforms = blurFilter.resources.alphaBlurUniforms.uniforms;
 
+    const k = blurKernelKnobs(this._quality);
+    blurUniforms.uSigmaExtent = k.sigmaExtent;
+    blurUniforms.uSampleStride = k.sampleStride;
+    blurUniforms.uMaxRadius = k.maxRadius;
+
     const tempH = TexturePool.getSameSizeTexture(input);
     blurUniforms.uDirection[0] = 1;
     blurUniforms.uDirection[1] = 0;
@@ -426,7 +455,9 @@ export class BoxShadowFilter extends Filter {
 
   set shapeMode(value: ShapeMode) {
     this._shapeMode = value;
-    this.uniforms.uShapeMode = value === 'texture' ? 1 : 0;
+    if (this.uniforms.uShapeMode !== undefined) {
+      this.uniforms.uShapeMode = value === 'texture' ? 1 : 0;
+    }
   }
 
   get quality(): number {
@@ -435,7 +466,16 @@ export class BoxShadowFilter extends Filter {
 
   set quality(value: number) {
     this._quality = Math.max(1, Math.min(5, Math.round(value)));
-    this.uniforms.uQuality = this._quality;
+    if (this.uniforms.uQuality !== undefined) {
+      this.uniforms.uQuality = this._quality;
+    }
+    if (this._blurFilter) {
+      const k = blurKernelKnobs(this._quality);
+      const bu = this._blurFilter.resources.alphaBlurUniforms.uniforms;
+      bu.uSigmaExtent = k.sigmaExtent;
+      bu.uSampleStride = k.sampleStride;
+      bu.uMaxRadius = k.maxRadius;
+    }
   }
 
   // ----------------------------------------------------------------

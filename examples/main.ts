@@ -340,9 +340,11 @@ function setupTabs() {
       tab.classList.add('active');
 
       if (btn.dataset.tab === 'perf') {
+        visualApp?.stop();
         startPerfAnimations();
       } else {
         stopPerfAnimations();
+        visualApp?.start();
       }
     });
   });
@@ -364,6 +366,9 @@ function setupTabs() {
 // ============================================================
 // Visual tab
 // ============================================================
+
+/** Main comparison canvas — must stop its ticker when leaving Visual tab or it keeps burning GPU. */
+let visualApp: Application | null = null;
 
 async function initVisualTab() {
   const cssColumn = document.getElementById('css-column')!;
@@ -398,7 +403,9 @@ async function initVisualTab() {
     resolution: window.devicePixelRatio || 1,
     autoDensity: true,
     preference: 'webgl',
+    autoStart: false,
   });
+  visualApp = app;
   pixiWrap.appendChild(app.canvas);
 
   const labelStyle = new TextStyle({
@@ -436,6 +443,8 @@ async function initVisualTab() {
     gfx.filters = [filter];
     rowContainer.addChild(gfx);
   }
+
+  app.start();
 }
 
 // ============================================================
@@ -505,6 +514,7 @@ async function initPerfColorTest() {
     resolution: window.devicePixelRatio || 1,
     autoDensity: true,
     preference: 'webgl',
+    autoStart: false,
   });
   container.appendChild(app.canvas);
   perfColorApp = app;
@@ -535,6 +545,7 @@ async function initPerfSizeTest() {
     resolution: window.devicePixelRatio || 1,
     autoDensity: true,
     preference: 'webgl',
+    autoStart: false,
   });
   container.appendChild(app.canvas);
   perfSizeApp = app;
@@ -610,6 +621,11 @@ function setupPerfControls() {
     canvasPaused = !canvasPaused;
     btnCanvas.textContent = canvasPaused ? '▶ Play Canvas' : '⏸ Pause Canvas';
     btnCanvas.classList.toggle('paused', canvasPaused);
+
+    if (canvasPaused && perfAnimationId !== null) {
+      cancelAnimationFrame(perfAnimationId);
+      perfAnimationId = null;
+    }
 
     if (!canvasPaused && perfRunning) {
       fpsPixiColor?.reset();

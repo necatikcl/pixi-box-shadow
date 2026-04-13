@@ -17,9 +17,9 @@ uniform vec4 uInputSize;
 
 uniform vec2 uDirection;   // (1,0) for horizontal, (0,1) for vertical
 uniform float uStrength;   // sigma of the Gaussian
-
-// Maximum kernel radius (one side). Limits GPU loop iterations.
-const int MAX_KERNEL_RADIUS = 64;
+uniform float uSigmaExtent;   // radius = ceil(sigma * uSigmaExtent), capped by uMaxRadius
+uniform float uSampleStride;  // sample every N pixels (1 or 2)
+uniform float uMaxRadius;     // max kernel radius per side (pixels)
 
 void main(void) {
     // If sigma is negligible, pass through the alpha unchanged
@@ -31,9 +31,8 @@ void main(void) {
 
     float sigma = uStrength;
 
-    // Kernel radius: cover 3 sigma for excellent quality (99.7% of Gaussian energy)
-    int radius = int(ceil(sigma * 3.0));
-    if (radius > MAX_KERNEL_RADIUS) radius = MAX_KERNEL_RADIUS;
+    float radiusF = min(ceil(sigma * uSigmaExtent), uMaxRadius);
+    int radius = int(radiusF);
 
     // Pixel step in texture coordinates for the blur direction
     vec2 pixelStep = uDirection * uInputSize.zw;
@@ -45,15 +44,12 @@ void main(void) {
     float totalWeight = 1.0;
     float totalAlpha = texture(uTexture, vTextureCoord).a;
 
-    // Symmetric samples: tap at +i and -i simultaneously
-    for (int i = 1; i <= MAX_KERNEL_RADIUS; i++) {
-        if (i > radius) break;
+    // Symmetric samples: tap at ±off for off = stride, 2*stride, … ≤ radius
+    for (float off = uSampleStride; off <= float(radius) + 1e-4; off += uSampleStride) {
+        float weight = exp(-off * off * invTwoSigmaSq);
 
-        float offset = float(i);
-        float weight = exp(-offset * offset * invTwoSigmaSq);
-
-        vec2 uv1 = vTextureCoord + pixelStep * offset;
-        vec2 uv2 = vTextureCoord - pixelStep * offset;
+        vec2 uv1 = vTextureCoord + pixelStep * off;
+        vec2 uv2 = vTextureCoord - pixelStep * off;
 
         totalAlpha += texture(uTexture, uv1).a * weight;
         totalAlpha += texture(uTexture, uv2).a * weight;

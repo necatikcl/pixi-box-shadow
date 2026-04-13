@@ -1,10 +1,6 @@
-// pixi-box-shadow — GLSL Fragment Shader (WebGL)
+// pixi-box-shadow — Texture / arbitrary-shape mode (shapeMode: 'texture')
 //
-// Two shape modes:
-//   shapeMode 0 ('box')     — analytical SDF rounded-rectangle, O(1) per pixel
-//   shapeMode 1 ('texture') — two-pass separable Gaussian blur on alpha channel
-//                              (CSS filter: drop-shadow() approach)
-//
+// Composites pre-blurred alpha (two-pass separable Gaussian from apply() pipeline).
 // Compositing order (matches CSS spec):
 //   1. Outer shadows — behind the element
 //   2. Element texture — the actual rendered content
@@ -19,7 +15,6 @@ out vec4 finalColor;
 uniform sampler2D uTexture;
 uniform vec4 uInputSize;
 
-// Pre-blurred alpha texture (texture mode only, set by apply() pipeline)
 uniform sampler2D uBlurredAlpha;
 
 uniform vec2 uElementSize;
@@ -31,14 +26,11 @@ uniform vec4 uShadowOffsetBlurSpread[8];
 uniform vec4 uShadowColor[8];
 uniform float uShadowInset[8];
 
-uniform int uShapeMode;       // 0 = box (SDF), 1 = texture
-uniform int uQuality;         // kept for backward compat
-uniform float uMaxSigma;      // sigma used for the blur passes
-uniform int uRenderElement;   // 1 = composite element+shadows, 0 = shadows only
+uniform int uShapeMode;
+uniform int uQuality;
+uniform float uMaxSigma;
+uniform int uRenderElement;
 
-// ============================================================
-// Fast erf approximation (Abramowitz & Stegun 7.1.26)
-// ============================================================
 float erf_approx(float x) {
     float ax = abs(x);
     float t = 1.0 / (1.0 + 0.3275911 * ax);
@@ -54,7 +46,6 @@ float blurredBox1D(float x, float halfW, float sigma) {
     return gaussianCDF(x + halfW, sigma) - gaussianCDF(x - halfW, sigma);
 }
 
-// SDF for rounded rectangle (Inigo Quilez)
 float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
     vec2 rr = (p.x > 0.0) ? r.yz : r.xw;
     rr.x = (p.y > 0.0) ? rr.y : rr.x;
@@ -63,9 +54,6 @@ float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
     return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - rad;
 }
 
-// ============================================================
-// Analytical blurred rounded-rectangle shadow (box mode)
-// ============================================================
 float roundedBoxShadow(vec2 p, vec2 halfSize, float sigma, vec4 radii) {
     if (sigma < 0.001) {
         float d = sdRoundedBox(p, halfSize, radii);
@@ -87,10 +75,6 @@ float roundedBoxShadow(vec2 p, vec2 halfSize, float sigma, vec4 radii) {
     return 1.0 - gaussianCDF(d, sigma);
 }
 
-// ============================================================
-// Read pre-blurred alpha with spread adjustment (texture mode)
-// ============================================================
-
 float readBlurredAlpha(vec2 uv, float sigma, float spread) {
     float alpha;
 
@@ -100,16 +84,9 @@ float readBlurredAlpha(vec2 uv, float sigma, float spread) {
         alpha = texture(uBlurredAlpha, uv).a;
     }
 
-    // Spread: expand or shrink the shadow shape.
-    // Use gaussianCDF to find the alpha value at the new edge position,
-    // then remap with smoothstep so α=0 stays 0 and α=1 stays 1.
     if (abs(spread) > 0.01) {
         float effectiveSigma = max(sigma, 0.5);
-        // gaussianCDF(-spread, sigma) gives the alpha at distance `spread`
-        // from the original edge. This becomes our new 50% crossing point.
         float edgeAlpha = gaussianCDF(-spread, effectiveSigma);
-        // Remap: values below 0 stay 0, the new edge maps to ~0.5,
-        // and values above map toward 1.
         alpha = smoothstep(0.0, edgeAlpha * 2.0, alpha);
     }
 
@@ -148,14 +125,12 @@ void main(void) {
         vec4 shadowCol = uShadowColor[i];
         float isInset = uShadowInset[i];
 
-        // Skip shadows with zero alpha (used for per-group rendering)
         if (shadowCol.a < 0.001) continue;
 
         float sigma = blur * 0.5;
         float shadowValue;
 
         if (uShapeMode == 1) {
-            // Texture mode: read pre-blurred alpha
             vec2 offsetUV = offset * uInputSize.zw;
             float sampledAlpha = readBlurredAlpha(
                 vTextureCoord - offsetUV,
@@ -176,7 +151,6 @@ void main(void) {
                 outerResult = outerResult + shadow * (1.0 - outerResult.a);
             }
         } else {
-            // Box mode: analytical SDF (unchanged)
             vec2 shadowP = p - offset;
 
             if (isInset > 0.5) {
@@ -198,9 +172,7 @@ void main(void) {
         }
     }
 
-    // Compositing
     if (uRenderElement == 1) {
-        // Full composite: outer shadows + element + inset shadows
         vec4 color = outerResult;
         color = texColor + color * (1.0 - texColor.a);
         color = vec4(
@@ -209,7 +181,6 @@ void main(void) {
         );
         finalColor = color;
     } else {
-        // Shadows only (no element) — used for intermediate per-sigma passes
         finalColor = outerResult;
     }
 }

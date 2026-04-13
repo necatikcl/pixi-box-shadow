@@ -13,3 +13,5 @@ export { BoxShadowFilter } from './BoxShadowFilter';
 export { parseBoxShadow } from './parser';
 export type { BoxShadowOptions, BoxShadowFilterOptions, ShapeMode } from './types';
 export { MAX_SHADOWS } from './types';
+export { blurKernelKnobs } from './utils';
+export type { BlurKernelKnobs } from './utils';

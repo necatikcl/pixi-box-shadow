@@ -1,6 +1,36 @@
 import { Color } from 'pixi.js';
 import type { BoxShadowOptions } from './types';
 
+/** Knobs for texture-mode separable Gaussian blur (see `alpha-blur` shaders). */
+export interface BlurKernelKnobs {
+  /** Kernel half-extent multiplier in units of σ (CSS blur σ = blurRadius / 2). */
+  sigmaExtent: number;
+  /** Sample every N pixels along the 1D kernel (2 is coarser, fewer taps). */
+  sampleStride: number;
+  /** Hard cap on kernel radius in pixels (per side). */
+  maxRadius: number;
+}
+
+/**
+ * Maps `BoxShadowFilter` quality 1–5 to blur cost. Higher quality = more taps / wider kernel.
+ * Quality 5 matches the pre–quality-knob defaults (3σ extent, stride 1, cap 64).
+ */
+export function blurKernelKnobs(quality: number): BlurKernelKnobs {
+  const q = Math.max(1, Math.min(5, Math.round(quality)));
+  switch (q) {
+    case 1:
+      return { sigmaExtent: 2.12, sampleStride: 2, maxRadius: 26 };
+    case 2:
+      return { sigmaExtent: 2.35, sampleStride: 2, maxRadius: 34 };
+    case 3:
+      return { sigmaExtent: 2.62, sampleStride: 1, maxRadius: 44 };
+    case 4:
+      return { sigmaExtent: 2.88, sampleStride: 1, maxRadius: 56 };
+    default:
+      return { sigmaExtent: 3.0, sampleStride: 1, maxRadius: 64 };
+  }
+}
+
 /**
  * Calculate the required filter padding from a set of shadow options.
  * Padding must accommodate the maximum extent of any outer shadow.

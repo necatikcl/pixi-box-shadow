@@ -44,8 +44,16 @@ void main(void) {
     float totalWeight = 1.0;
     float totalAlpha = texture(uTexture, vTextureCoord).a;
 
-    // Symmetric samples: tap at ±off for off = stride, 2*stride, … ≤ radius
-    for (float off = uSampleStride; off <= float(radius) + 1e-4; off += uSampleStride) {
+    // Symmetric samples: tap at ±off for off = stride, 2*stride, … ≤ radius.
+    // WebGL 1 GLSL ES1.00: loop index must use constant initializer/bounds;
+    // cannot write `for (float off = uSampleStride; ...)`.
+    const int BLUR_MAX_STEPS = 64;
+    for (int i = 1; i <= BLUR_MAX_STEPS; i++) {
+        float off = float(i) * uSampleStride;
+        if (off > float(radius) + 1e-4) {
+            break;
+        }
+
         float weight = exp(-off * off * invTwoSigmaSq);
 
         vec2 uv1 = vTextureCoord + pixelStep * off;

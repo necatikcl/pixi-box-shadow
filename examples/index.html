@@ -4,55 +4,102 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>pixi-box-shadow — CSS vs PixiJS Side-by-Side</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <style>
+    :root {
+      --background: 0 0% 100%;
+      --foreground: 240 10% 3.9%;
+      --card: 0 0% 100%;
+      --card-foreground: 240 10% 3.9%;
+      --muted: 240 4.8% 95.9%;
+      --muted-foreground: 240 3.8% 46.1%;
+      --border: 240 5.9% 90%;
+      --input: 240 5.9% 90%;
+      --ring: 240 5.9% 10%;
+      --primary: 240 5.9% 10%;
+      --primary-foreground: 0 0% 98%;
+      --secondary: 240 4.8% 95.9%;
+      --secondary-foreground: 240 5.9% 10%;
+      --accent: 240 4.8% 95.9%;
+      --accent-foreground: 240 5.9% 10%;
+      --radius: 0.5rem;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      --font-mono: 'Geist Mono', 'SF Mono', 'Fira Code', 'Fira Mono', ui-monospace, monospace;
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #ffffff;
-      color: #333;
+      font-family: var(--font-sans);
+      background: hsl(var(--background));
+      color: hsl(var(--foreground));
       min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
-    h1 {
-      text-align: center;
-      padding: 24px 0 8px;
-      font-size: 28px;
-      font-weight: 300;
-      letter-spacing: 2px;
-      color: #111;
+
+    /* Header */
+    .header {
+      border-bottom: 1px solid hsl(var(--border));
+      padding: 20px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 4px;
+      background: hsl(var(--card));
     }
-    .subtitle {
-      text-align: center;
-      color: #666;
+
+    .header h1 {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: -0.025em;
+      color: hsl(var(--foreground));
+    }
+
+    .header .subtitle {
       font-size: 14px;
-      margin-bottom: 16px;
+      color: hsl(var(--muted-foreground));
+      font-weight: 400;
     }
 
     /* Tab navigation */
-    .tabs {
+    .nav {
+      border-bottom: 1px solid hsl(var(--border));
+      padding: 0 24px;
       display: flex;
       justify-content: center;
-      gap: 0;
-      margin-bottom: 24px;
+      background: hsl(var(--card));
+      position: sticky;
+      top: 0;
+      z-index: 50;
     }
+
     .tab-btn {
-      padding: 10px 32px;
-      font-size: 15px;
-      font-weight: 600;
-      border: 2px solid #ccc;
+      padding: 12px 20px;
+      font-size: 14px;
+      font-weight: 500;
+      font-family: var(--font-sans);
+      border: none;
       background: transparent;
-      color: #888;
+      color: hsl(var(--muted-foreground));
       cursor: pointer;
-      transition: all 0.2s;
-      font-family: inherit;
+      transition: color 0.15s;
+      position: relative;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
     }
-    .tab-btn:first-child { border-radius: 8px 0 0 8px; }
-    .tab-btn:last-child { border-radius: 0 8px 8px 0; }
+
+    .tab-btn:hover {
+      color: hsl(var(--foreground));
+    }
+
     .tab-btn.active {
-      background: #f0f4ff;
-      color: #1a56db;
-      border-color: #1a56db;
+      color: hsl(var(--foreground));
+      border-bottom-color: hsl(var(--foreground));
     }
-    .tab-btn:hover:not(.active) { background: #f5f5f5; color: #555; }
 
     .tab-content { display: none; }
     .tab-content.active { display: block; }
@@ -61,72 +108,94 @@
     .sub-tabs {
       display: flex;
       justify-content: center;
-      gap: 8px;
-      margin-bottom: 20px;
-    }
-    .sub-tab-btn {
-      padding: 6px 20px;
-      font-size: 13px;
-      border: 1px solid #ccc;
-      border-radius: 20px;
-      background: transparent;
-      color: #888;
-      cursor: pointer;
-      transition: all 0.2s;
-      font-family: inherit;
-    }
-    .sub-tab-btn.active {
-      background: #e8f5e9;
-      color: #2e7d32;
-      border-color: #2e7d32;
+      gap: 6px;
+      padding: 16px 24px;
+      border-bottom: 1px solid hsl(var(--border));
+      background: hsl(var(--card));
     }
 
-    /* Column layout for comparison */
+    .sub-tab-btn {
+      padding: 6px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      font-family: var(--font-sans);
+      border: 1px solid hsl(var(--border));
+      border-radius: calc(var(--radius) * 1.5);
+      background: hsl(var(--card));
+      color: hsl(var(--muted-foreground));
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .sub-tab-btn:hover {
+      background: hsl(var(--accent));
+      color: hsl(var(--accent-foreground));
+    }
+
+    .sub-tab-btn.active {
+      background: hsl(var(--foreground));
+      color: hsl(var(--primary-foreground));
+      border-color: hsl(var(--foreground));
+    }
+
+    /* Column layout for visual comparison */
     .comparison {
       display: flex;
       max-width: 1400px;
       margin: 0 auto;
-      gap: 0;
+      min-height: calc(100vh - 120px);
     }
+
     .column {
       flex: 1;
       min-width: 0;
     }
+
     .column-header {
       text-align: center;
-      font-size: 18px;
+      font-size: 13px;
       font-weight: 600;
-      padding: 12px;
-      border-bottom: 2px solid #ddd;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      padding: 12px 16px;
+      border-bottom: 1px solid hsl(var(--border));
       position: sticky;
-      top: 0;
-      background: #ffffff;
+      top: 47px;
+      background: hsl(var(--muted));
       z-index: 10;
+      color: hsl(var(--muted-foreground));
     }
-    .column-header.css { color: #1565c0; }
-    .column-header.pixi { color: #2e7d32; }
+
+    .css-column {
+      border-right: 1px solid hsl(var(--border));
+    }
+
     .test-cell {
-      padding: 20px;
+      padding: 24px 20px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 10px;
-      border-bottom: 1px solid #e0e0e0;
+      gap: 12px;
+      border-bottom: 1px solid hsl(var(--border));
       min-height: 200px;
       justify-content: center;
     }
-    .css-column .test-cell {
-      border-right: 1px solid #e0e0e0;
-    }
+
     .test-label {
       font-size: 11px;
-      color: #777;
-      font-family: 'SF Mono', 'Fira Code', monospace;
+      line-height: 1.5;
+      color: hsl(var(--muted-foreground));
+      font-family: var(--font-mono);
       text-align: center;
       max-width: 350px;
       word-break: break-all;
       white-space: pre-wrap;
+      padding: 6px 10px;
+      background: hsl(var(--muted));
+      border-radius: var(--radius);
+      border: 1px solid hsl(var(--border));
     }
+
     .pixi-column canvas {
       display: block;
       margin: 0 auto;
@@ -137,8 +206,9 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 20px;
+      padding: 24px;
     }
+
     .perf-box-container {
       width: 400px;
       height: 280px;
@@ -146,59 +216,112 @@
       align-items: center;
       justify-content: center;
       position: relative;
+      border: 1px solid hsl(var(--border));
+      border-radius: var(--radius);
+      background: hsl(var(--card));
     }
+
     .fps-counter {
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 14px;
-      color: #2e7d32;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+      color: hsl(var(--foreground));
       text-align: center;
       margin-top: 12px;
       min-height: 24px;
+      padding: 4px 12px;
+      background: hsl(var(--muted));
+      border-radius: var(--radius);
+      border: 1px solid hsl(var(--border));
     }
+
     .perf-note {
       text-align: center;
-      color: #999;
-      font-size: 12px;
+      color: hsl(var(--muted-foreground));
+      font-size: 13px;
       margin-top: 16px;
       max-width: 600px;
       margin-left: auto;
       margin-right: auto;
       line-height: 1.6;
     }
+
+    .perf-note strong {
+      color: hsl(var(--foreground));
+      font-weight: 500;
+    }
+
     .perf-controls {
       display: flex;
       justify-content: center;
-      gap: 12px;
+      gap: 8px;
       margin-top: 24px;
+      padding: 0 24px;
     }
+
     .perf-ctrl-btn {
-      padding: 10px 24px;
+      padding: 8px 16px;
       font-size: 14px;
-      font-weight: 600;
-      border: 2px solid #ccc;
-      border-radius: 8px;
-      background: #fff;
-      color: #555;
+      font-weight: 500;
+      font-family: var(--font-sans);
+      border: 1px solid hsl(var(--border));
+      border-radius: var(--radius);
+      background: hsl(var(--card));
+      color: hsl(var(--foreground));
       cursor: pointer;
       transition: all 0.15s;
-      font-family: inherit;
       min-width: 180px;
     }
-    .perf-ctrl-btn:hover { background: #f5f5f5; border-color: #999; }
-    .perf-ctrl-btn.paused {
-      background: #e8f5e9;
-      color: #2e7d32;
-      border-color: #2e7d32;
+
+    .perf-ctrl-btn:hover {
+      background: hsl(var(--accent));
+      border-color: hsl(var(--ring));
     }
+
+    .perf-ctrl-btn.paused {
+      background: hsl(var(--foreground));
+      color: hsl(var(--primary-foreground));
+      border-color: hsl(var(--foreground));
+    }
+
     .sub-content { display: none; }
     .sub-content.active { display: block; }
+
+    /* Badge */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 500;
+      font-family: var(--font-mono);
+      border-radius: calc(var(--radius) * 1.5);
+      border: 1px solid hsl(var(--border));
+      background: hsl(var(--muted));
+      color: hsl(var(--muted-foreground));
+    }
+
+    .column-header .badge {
+      margin-left: 8px;
+      font-size: 10px;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+
+    /* Footer spacer */
+    .footer-spacer {
+      height: 48px;
+      border-top: 1px solid hsl(var(--border));
+    }
   </style>
 </head>
 <body>
-  <h1>pixi-box-shadow</h1>
-  <p class="subtitle">SDF Analytical Gaussian Blur — CSS vs PixiJS v8 Side-by-Side Comparison</p>
+  <div class="header">
+    <h1>pixi-box-shadow</h1>
+    <p class="subtitle">SDF Analytical Gaussian Blur — CSS vs PixiJS v8 Side-by-Side</p>
+  </div>
 
-  <div class="tabs">
+  <div class="nav">
     <button class="tab-btn active" data-tab="visual">Visual</button>
     <button class="tab-btn" data-tab="perf">Performance</button>
   </div>
@@ -207,10 +330,10 @@
   <div class="tab-content active" id="tab-visual">
     <div class="comparison">
       <div class="column css-column" id="css-column">
-        <div class="column-header css">CSS (box-shadow / drop-shadow)</div>
+        <div class="column-header">CSS <span class="badge">box-shadow / drop-shadow</span></div>
       </div>
       <div class="column pixi-column" id="pixi-column">
-        <div class="column-header pixi">PixiJS (SDF shader)</div>
+        <div class="column-header">PixiJS <span class="badge">SDF shader</span></div>
         <div id="pixi-canvas-wrap" style="position: relative;"></div>
       </div>
     </div>
@@ -240,10 +363,10 @@
     </div>
 
     <div class="perf-controls">
-      <button class="perf-ctrl-btn" id="btn-toggle-animation">⏸ Pause Animation</button>
-      <button class="perf-ctrl-btn" id="btn-toggle-canvas">⏸ Pause Canvas</button>
+      <button class="perf-ctrl-btn" id="btn-toggle-animation">Pause Animation</button>
+      <button class="perf-ctrl-btn" id="btn-toggle-canvas">Pause Canvas</button>
     </div>
-    <p class="perf-note" style="margin-top: 8px;">
+    <p class="perf-note" style="margin-top: 8px; padding-bottom: 32px;">
       <strong>Pause Animation</strong> — ticker keeps running (re-renders every frame) but nothing changes. Tests idle/cache cost.<br>
       <strong>Pause Canvas</strong> — stops the ticker entirely. Zero GPU work.
     </p>

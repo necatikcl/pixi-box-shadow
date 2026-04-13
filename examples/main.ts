@@ -402,9 +402,9 @@ async function initVisualTab() {
   pixiWrap.appendChild(app.canvas);
 
   const labelStyle = new TextStyle({
-    fontFamily: 'SF Mono, Fira Code, monospace',
+    fontFamily: 'Geist Mono, SF Mono, Fira Code, ui-monospace, monospace',
     fontSize: 11,
-    fill: '#777777',
+    fill: '#71717a',
     align: 'center',
     wordWrap: true,
     wordWrapWidth: 300,
@@ -597,7 +597,7 @@ function setupPerfControls() {
 
   btnAnim.addEventListener('click', () => {
     animationPaused = !animationPaused;
-    btnAnim.textContent = animationPaused ? '▶ Play Animation' : '⏸ Pause Animation';
+    btnAnim.textContent = animationPaused ? 'Play Animation' : 'Pause Animation';
     btnAnim.classList.toggle('paused', animationPaused);
 
     if (animationPaused) {
@@ -608,7 +608,7 @@ function setupPerfControls() {
 
   btnCanvas.addEventListener('click', () => {
     canvasPaused = !canvasPaused;
-    btnCanvas.textContent = canvasPaused ? '▶ Play Canvas' : '⏸ Pause Canvas';
+    btnCanvas.textContent = canvasPaused ? 'Play Canvas' : 'Pause Canvas';
     btnCanvas.classList.toggle('paused', canvasPaused);
 
     if (!canvasPaused && perfRunning) {

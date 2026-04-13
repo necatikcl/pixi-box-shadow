@@ -121,8 +121,6 @@ fn getShadowInset(index: i32) -> f32 {
 }
 
 // Read pre-blurred alpha with spread adjustment (texture mode)
-// The blurred alpha texture is always blurred at the EXACT sigma for
-// the current shadow group (per-sigma blur in apply()). No interpolation needed.
 
 fn readBlurredAlpha(uv: vec2<f32>, sigma: f32, spread: f32) -> f32 {
   var alpha: f32;
@@ -131,20 +129,18 @@ fn readBlurredAlpha(uv: vec2<f32>, sigma: f32, spread: f32) -> f32 {
     // No blur — use original alpha directly
     alpha = textureSample(uTexture, uSampler, uv).a;
   } else {
-    // Read from the pre-blurred alpha texture
+    // Read from the pre-blurred alpha texture (blurred at uMaxSigma).
     alpha = textureSample(uBlurredAlpha, uBlurredAlphaSampler, uv).a;
   }
 
-  // Apply spread adjustment.
-  // CSS spec: spread expands (positive) or shrinks (negative) the shadow
-  // shape before blurring. We approximate by shifting the alpha threshold.
-  //
-  // The Gaussian CDF gradient at the edge is approximately 1/(σ·√(2π)).
-  // Shifting by `spread` pixels changes the alpha by spread × gradient.
+  // Spread adjustment: remap the alpha transition to expand or shrink the shadow.
   if (abs(spread) > 0.01) {
     let effectiveSigma = max(sigma, 0.5);
     let gradient = 1.0 / (effectiveSigma * 2.5066);
-    alpha = clamp(alpha + spread * gradient, 0.0, 1.0);
+    let shift = spread * gradient;
+    let threshold = 0.5 - shift;
+    let range = max(1.0 - abs(shift) * 2.0, 0.2);
+    alpha = clamp((alpha - threshold) / range, 0.0, 1.0);
   }
 
   return alpha;

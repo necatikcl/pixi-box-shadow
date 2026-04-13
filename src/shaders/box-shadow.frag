@@ -99,9 +99,6 @@ float roundedBoxShadow(vec2 p, vec2 halfSize, float sigma, vec4 radii) {
 // Read pre-blurred alpha with spread adjustment (texture mode)
 // ============================================================
 
-// The blurred alpha texture is always blurred at the EXACT sigma for
-// the current shadow group (per-sigma blur in apply()). No interpolation needed.
-
 float readBlurredAlpha(vec2 uv, float sigma, float spread) {
     float alpha;
 
@@ -109,21 +106,25 @@ float readBlurredAlpha(vec2 uv, float sigma, float spread) {
         // No blur — use original alpha directly
         alpha = texture(uTexture, uv).a;
     } else {
-        // Read from the pre-blurred alpha texture
+        // Read from the pre-blurred alpha texture (blurred at uMaxSigma).
+        // For shadows with sigma < maxSigma, the blur is wider than needed.
+        // The spread/threshold adjustment below partially compensates.
         alpha = texture(uBlurredAlpha, uv).a;
     }
 
-    // Apply spread adjustment.
-    // CSS spec: spread expands (positive) or shrinks (negative) the shadow
-    // shape before blurring. We approximate by shifting the alpha threshold.
-    //
-    // The Gaussian CDF gradient at the edge is approximately 1/(σ·√(2π)).
-    // Shifting by `spread` pixels changes the alpha by spread × gradient.
+    // Spread adjustment: remap the alpha transition to expand or shrink the shadow.
+    // This shifts the 50% crossing point by `spread` pixels worth of gradient.
+    // Unlike direct addition, this remapping preserves α=0 for transparent areas
+    // (no "background" artifact) and α=1 for fully opaque areas.
     if (abs(spread) > 0.01) {
         float effectiveSigma = max(sigma, 0.5);
-        // Gradient of the Gaussian blur at the edge (steepness of the transition)
         float gradient = 1.0 / (effectiveSigma * 2.5066);
-        alpha = clamp(alpha + spread * gradient, 0.0, 1.0);
+        float shift = spread * gradient;
+        // Threshold: where the original 0.5 crossing now maps to
+        float threshold = 0.5 - shift;
+        // Rescale so the transition still spans roughly [0, 1]
+        float range = max(1.0 - abs(shift) * 2.0, 0.2);
+        alpha = clamp((alpha - threshold) / range, 0.0, 1.0);
     }
 
     return alpha;

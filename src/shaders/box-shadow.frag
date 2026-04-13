@@ -74,6 +74,12 @@ float roundedBoxShadow(vec2 p, vec2 halfSize, float sigma, vec4 radii) {
 
     float maxRadius = max(max(radii.x, radii.y), max(radii.z, radii.w));
     if (maxRadius < 0.5) {
+        // Fast separable path for sharp-cornered boxes: skip pixels far
+        // outside the blur extent to avoid expensive erf/exp calls.
+        float cutoff = 3.0 * sigma;
+        if (abs(p.x) > halfSize.x + cutoff || abs(p.y) > halfSize.y + cutoff) return 0.0;
+        if (abs(p.x) < halfSize.x - cutoff && abs(p.y) < halfSize.y - cutoff) return 1.0;
+
         float xInt = blurredBox1D(p.x, halfSize.x, sigma);
         float yInt = blurredBox1D(p.y, halfSize.y, sigma);
         return xInt * yInt;
@@ -84,6 +90,11 @@ float roundedBoxShadow(vec2 p, vec2 halfSize, float sigma, vec4 radii) {
     effRadii = min(effRadii, vec4(maxDim));
 
     float d = sdRoundedBox(p, halfSize, effRadii);
+
+    // Skip gaussianCDF for pixels clearly inside or outside the shadow
+    if (d > 3.0 * sigma) return 0.0;
+    if (d < -3.0 * sigma) return 1.0;
+
     return 1.0 - gaussianCDF(d, sigma);
 }
 
@@ -176,12 +187,17 @@ void main(void) {
                 outerResult = outerResult + shadow * (1.0 - outerResult.a);
             }
         } else {
-            // Box mode: analytical SDF (unchanged)
+            // Box mode: analytical SDF
             vec2 shadowP = p - offset;
 
             if (isInset > 0.5) {
                 vec2 insetHalf = max(halfSize - spread, vec2(0.001));
                 vec4 insetRadii = clamp(baseRadii - spread, vec4(0.0), vec4(min(insetHalf.x, insetHalf.y)));
+
+                // Skip if pixel is far outside the element (no inset shadow visible)
+                float insetCutoff = max(sigma * 3.0, 1.0);
+                if (abs(shadowP.x) > insetHalf.x + insetCutoff || abs(shadowP.y) > insetHalf.y + insetCutoff) continue;
+
                 float inner = roundedBoxShadow(shadowP, insetHalf, sigma, insetRadii);
                 shadowValue = (1.0 - inner) * insideElement;
 
@@ -190,6 +206,11 @@ void main(void) {
             } else {
                 vec2 outerHalf = max(halfSize + spread, vec2(0.001));
                 vec4 outerRadii = clamp(baseRadii + spread, vec4(0.0), vec4(min(outerHalf.x, outerHalf.y)));
+
+                // Skip if pixel is far outside the shadow's influence
+                float outerCutoff = max(sigma * 3.0, 1.0);
+                if (abs(shadowP.x) > outerHalf.x + outerCutoff || abs(shadowP.y) > outerHalf.y + outerCutoff) continue;
+
                 shadowValue = roundedBoxShadow(shadowP, outerHalf, sigma, outerRadii);
 
                 vec4 shadow = vec4(shadowCol.rgb * shadowCol.a * shadowValue, shadowCol.a * shadowValue);

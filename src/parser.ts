@@ -83,52 +83,47 @@ function parseNumeric(token: string): number {
   return parseFloat(token);
 }
 
+const NAMED_COLORS = new Set([
+  'transparent', 'currentcolor',
+  'black', 'white', 'red', 'green', 'blue', 'yellow', 'cyan', 'magenta',
+  'orange', 'purple', 'pink', 'brown', 'gray', 'grey', 'silver', 'gold',
+  'navy', 'teal', 'maroon', 'olive', 'lime', 'aqua', 'fuchsia',
+  'darkblue', 'darkgreen', 'darkred', 'darkcyan', 'darkmagenta', 'darkyellow',
+  'darkgray', 'darkgrey', 'lightblue', 'lightgreen', 'lightpink', 'lightyellow',
+  'lightgray', 'lightgrey', 'lightcyan', 'lightcoral', 'lightsalmon',
+  'cornflowerblue', 'dodgerblue', 'steelblue', 'royalblue', 'midnightblue',
+  'slategray', 'slategrey', 'dimgray', 'dimgrey', 'darkslategray', 'darkslategrey',
+  'coral', 'tomato', 'orangered', 'firebrick', 'crimson', 'indianred',
+  'chocolate', 'sienna', 'saddlebrown', 'peru', 'tan', 'wheat',
+  'lavender', 'thistle', 'plum', 'violet', 'orchid', 'mediumvioletred',
+  'deeppink', 'hotpink', 'palevioletred',
+  'darkviolet', 'darkorchid', 'darkmagenta', 'mediumpurple', 'blueviolet',
+  'indigo', 'rebeccapurple',
+  'greenyellow', 'chartreuse', 'lawngreen', 'limegreen', 'palegreen',
+  'mediumspringgreen', 'springgreen', 'mediumaquamarine', 'mediumseagreen',
+  'seagreen', 'forestgreen', 'darkgreen', 'darkolivegreen', 'olivedrab',
+  'yellowgreen',
+  'aliceblue', 'antiquewhite', 'azure', 'beige', 'bisque', 'blanchedalmond',
+  'burlywood', 'cadetblue', 'cornsilk', 'floralwhite', 'gainsboro',
+  'ghostwhite', 'honeydew', 'ivory', 'khaki', 'darkkhaki',
+  'linen', 'mintcream', 'mistyrose', 'moccasin', 'navajowhite',
+  'oldlace', 'papayawhip', 'peachpuff', 'rosybrown', 'sandybrown',
+  'seashell', 'snow', 'whitesmoke',
+  'skyblue', 'deepskyblue', 'lightskyblue', 'lightsteelblue',
+  'powderblue', 'aquamarine', 'turquoise', 'mediumturquoise',
+  'darkturquoise', 'lightseagreen', 'darkcyan',
+  'salmon', 'lightsalmon', 'darksalmon',
+  'goldenrod', 'darkgoldenrod', 'palegoldenrod',
+  'lemonchiffon', 'lightgoldenrodyellow',
+]);
+
 /**
  * Check if a token is a CSS color value.
  */
 function isColorToken(token: string): boolean {
-  // Hex colors
-  if (/^#[0-9a-fA-F]{3,8}$/.test(token)) return true;
-
-  // Functional colors
+  if (token.charCodeAt(0) === 35) return /^#[0-9a-fA-F]{3,8}$/.test(token);
   if (/^(rgb|rgba|hsl|hsla)\(/.test(token)) return true;
-
-  // Named colors — check a large subset of CSS named colors
-  const namedColors = new Set([
-    'transparent', 'currentcolor',
-    'black', 'white', 'red', 'green', 'blue', 'yellow', 'cyan', 'magenta',
-    'orange', 'purple', 'pink', 'brown', 'gray', 'grey', 'silver', 'gold',
-    'navy', 'teal', 'maroon', 'olive', 'lime', 'aqua', 'fuchsia',
-    'darkblue', 'darkgreen', 'darkred', 'darkcyan', 'darkmagenta', 'darkyellow',
-    'darkgray', 'darkgrey', 'lightblue', 'lightgreen', 'lightpink', 'lightyellow',
-    'lightgray', 'lightgrey', 'lightcyan', 'lightcoral', 'lightsalmon',
-    'cornflowerblue', 'dodgerblue', 'steelblue', 'royalblue', 'midnightblue',
-    'slategray', 'slategrey', 'dimgray', 'dimgrey', 'darkslategray', 'darkslategrey',
-    'coral', 'tomato', 'orangered', 'firebrick', 'crimson', 'indianred',
-    'chocolate', 'sienna', 'saddlebrown', 'peru', 'tan', 'wheat',
-    'lavender', 'thistle', 'plum', 'violet', 'orchid', 'mediumvioletred',
-    'deeppink', 'hotpink', 'palevioletred',
-    'darkviolet', 'darkorchid', 'darkmagenta', 'mediumpurple', 'blueviolet',
-    'indigo', 'rebeccapurple',
-    'greenyellow', 'chartreuse', 'lawngreen', 'limegreen', 'palegreen',
-    'mediumspringgreen', 'springgreen', 'mediumaquamarine', 'mediumseagreen',
-    'seagreen', 'forestgreen', 'darkgreen', 'darkolivegreen', 'olivedrab',
-    'yellowgreen',
-    'aliceblue', 'antiquewhite', 'azure', 'beige', 'bisque', 'blanchedalmond',
-    'burlywood', 'cadetblue', 'cornsilk', 'floralwhite', 'gainsboro',
-    'ghostwhite', 'honeydew', 'ivory', 'khaki', 'darkkhaki',
-    'linen', 'mintcream', 'mistyrose', 'moccasin', 'navajowhite',
-    'oldlace', 'papayawhip', 'peachpuff', 'rosybrown', 'sandybrown',
-    'seashell', 'snow', 'whitesmoke',
-    'skyblue', 'deepskyblue', 'lightskyblue', 'lightsteelblue',
-    'powderblue', 'aquamarine', 'turquoise', 'mediumturquoise',
-    'darkturquoise', 'lightseagreen', 'darkcyan',
-    'salmon', 'lightsalmon', 'darksalmon',
-    'goldenrod', 'darkgoldenrod', 'palegoldenrod',
-    'lemonchiffon', 'lightgoldenrodyellow',
-  ]);
-
-  return namedColors.has(token.toLowerCase());
+  return NAMED_COLORS.has(token.toLowerCase());
 }
 
 /**

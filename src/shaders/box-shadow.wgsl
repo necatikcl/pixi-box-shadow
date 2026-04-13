@@ -87,6 +87,10 @@ fn roundedBoxShadow(p: vec2<f32>, halfSize: vec2<f32>, sigma: f32, radii: vec4<f
 
   let maxRadius = max(max(radii.x, radii.y), max(radii.z, radii.w));
   if (maxRadius < 0.5) {
+    let cutoff = 3.0 * sigma;
+    if (abs(p.x) > halfSize.x + cutoff || abs(p.y) > halfSize.y + cutoff) { return 0.0; }
+    if (abs(p.x) < halfSize.x - cutoff && abs(p.y) < halfSize.y - cutoff) { return 1.0; }
+
     let xInt = blurredBox1D(p.x, halfSize.x, sigma);
     let yInt = blurredBox1D(p.y, halfSize.y, sigma);
     return xInt * yInt;
@@ -96,6 +100,10 @@ fn roundedBoxShadow(p: vec2<f32>, halfSize: vec2<f32>, sigma: f32, radii: vec4<f
   let maxDim = min(halfSize.x, halfSize.y);
   let clampedRadii = min(effRadii, vec4<f32>(maxDim));
   let d = sdRoundedBox(p, halfSize, clampedRadii);
+
+  if (d > 3.0 * sigma) { return 0.0; }
+  if (d < -3.0 * sigma) { return 1.0; }
+
   return 1.0 - gaussianCDF(d, sigma);
 }
 
@@ -196,6 +204,10 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
       if (isInset > 0.5) {
         let insetHalf = max(halfSize - spread, vec2<f32>(0.001));
         let insetRadii = clamp(baseRadii - spread, vec4<f32>(0.0), vec4<f32>(min(insetHalf.x, insetHalf.y)));
+
+        let insetCutoff = max(sigma * 3.0, 1.0);
+        if (abs(shadowP.x) > insetHalf.x + insetCutoff || abs(shadowP.y) > insetHalf.y + insetCutoff) { continue; }
+
         let inner = roundedBoxShadow(shadowP, insetHalf, sigma, insetRadii);
         shadowValue = (1.0 - inner) * insideElement;
 
@@ -204,6 +216,10 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
       } else {
         let outerHalf = max(halfSize + spread, vec2<f32>(0.001));
         let outerRadii = clamp(baseRadii + spread, vec4<f32>(0.0), vec4<f32>(min(outerHalf.x, outerHalf.y)));
+
+        let outerCutoff = max(sigma * 3.0, 1.0);
+        if (abs(shadowP.x) > outerHalf.x + outerCutoff || abs(shadowP.y) > outerHalf.y + outerCutoff) { continue; }
+
         shadowValue = roundedBoxShadow(shadowP, outerHalf, sigma, outerRadii);
 
         let shadow = vec4<f32>(shadowCol.rgb * shadowCol.a * shadowValue, shadowCol.a * shadowValue);

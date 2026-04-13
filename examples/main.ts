@@ -1,6 +1,12 @@
 import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
 import { BoxShadowFilter } from '../src/index';
 
+declare global {
+  interface Window {
+    __runTextureBackendBenchmark?: () => Promise<TextureBackendBenchmarkResult | null>;
+  }
+}
+
 // ============================================================
 // Test case definitions (Visual tab)
 // ============================================================
@@ -510,6 +516,21 @@ let fpsTextureExact: FPSTracker | null = null;
 let fpsTextureLinear: FPSTracker | null = null;
 let perfStartTime = 0;
 
+interface TextureBackendBenchmarkResult {
+  rounds: number;
+  warmupFrames: number;
+  measuredFrames: number;
+  workMultiplier: number;
+  exactFrameMs: number[];
+  linearFrameMs: number[];
+  exactAvgMs: number;
+  linearAvgMs: number;
+  exactMedianMs: number;
+  linearMedianMs: number;
+  speedupFactor: number;
+  improvementPct: number;
+}
+
 async function initPerfColorTest() {
   const container = document.getElementById('perf-pixi-color-container')!;
   const app = new Application();
@@ -618,6 +639,129 @@ async function initPerfTextureBackendTests() {
   };
 }
 
+function updateTextureBenchmarkState(test: { filter: BoxShadowFilter }, elapsed: number): void {
+  const offset = Math.sin(elapsed * 0.0024) * 10;
+  const spread = Math.sin(elapsed * 0.0018) * 2;
+  const alpha1 = 0.32 + (0.18 * (Math.sin(elapsed * 0.0016) * 0.5 + 0.5));
+  const alpha2 = 0.18 + (0.14 * (Math.cos(elapsed * 0.0012) * 0.5 + 0.5));
+
+  const obs = test.filter.uniforms.uShadowOffsetBlurSpread;
+  const color = test.filter.uniforms.uShadowColor;
+  obs[0] = offset;
+  obs[1] = 8;
+  obs[3] = spread;
+  obs[4] = -offset * 0.6;
+  obs[5] = 2;
+  obs[7] = spread * 0.5;
+  color[3] = alpha1;
+  color[7] = alpha2;
+}
+
+function renderBackendFrames(
+  app: Application,
+  test: { filter: BoxShadowFilter },
+  frameCount: number,
+  seedTime: number,
+  workMultiplier: number,
+): number {
+  const renderer = app.renderer as { gl?: { finish?: () => void } };
+  const start = performance.now();
+
+  for (let i = 0; i < frameCount; i++) {
+    for (let pass = 0; pass < workMultiplier; pass++) {
+      const elapsed = seedTime + ((i * workMultiplier + pass) * 16.6667);
+      updateTextureBenchmarkState(test, elapsed);
+      app.render();
+      renderer.gl?.finish?.();
+    }
+  }
+
+  const end = performance.now();
+  return (end - start) / (frameCount * workMultiplier);
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) return (sorted[mid - 1] + sorted[mid]) * 0.5;
+  return sorted[mid];
+}
+
+async function runTextureBackendBenchmark(): Promise<TextureBackendBenchmarkResult | null> {
+  if (!perfTextureExactApp || !perfTextureLinearApp || !perfTextureExactTest || !perfTextureLinearTest) {
+    await startPerfAnimations();
+  }
+
+  if (!perfTextureExactApp || !perfTextureLinearApp || !perfTextureExactTest || !perfTextureLinearTest) {
+    return null;
+  }
+
+  const rounds = 3;
+  const warmupFrames = 2;
+  const measuredFrames = 8;
+  const workMultiplier = 1;
+  const exactFrameMs: number[] = [];
+  const linearFrameMs: number[] = [];
+
+  const wasCanvasPaused = canvasPaused;
+  canvasPaused = true;
+  if (perfAnimationId !== null) {
+    cancelAnimationFrame(perfAnimationId);
+    perfAnimationId = null;
+  }
+
+  for (let round = 0; round < rounds; round++) {
+    const seed = performance.now() + (round * 1000);
+    const runExactFirst = round % 2 === 0;
+
+    if (runExactFirst) {
+      renderBackendFrames(perfTextureExactApp, perfTextureExactTest, warmupFrames, seed, workMultiplier);
+      renderBackendFrames(perfTextureLinearApp, perfTextureLinearTest, warmupFrames, seed + 333.0, workMultiplier);
+      exactFrameMs.push(renderBackendFrames(perfTextureExactApp, perfTextureExactTest, measuredFrames, seed + 777.0, workMultiplier));
+      linearFrameMs.push(renderBackendFrames(perfTextureLinearApp, perfTextureLinearTest, measuredFrames, seed + 1111.0, workMultiplier));
+      continue;
+    }
+
+    renderBackendFrames(perfTextureLinearApp, perfTextureLinearTest, warmupFrames, seed, workMultiplier);
+    renderBackendFrames(perfTextureExactApp, perfTextureExactTest, warmupFrames, seed + 333.0, workMultiplier);
+    linearFrameMs.push(renderBackendFrames(perfTextureLinearApp, perfTextureLinearTest, measuredFrames, seed + 777.0, workMultiplier));
+    exactFrameMs.push(renderBackendFrames(perfTextureExactApp, perfTextureExactTest, measuredFrames, seed + 1111.0, workMultiplier));
+  }
+
+  const exactAvgMs = exactFrameMs.reduce((sum, value) => sum + value, 0) / exactFrameMs.length;
+  const linearAvgMs = linearFrameMs.reduce((sum, value) => sum + value, 0) / linearFrameMs.length;
+  const exactMedianMs = median(exactFrameMs);
+  const linearMedianMs = median(linearFrameMs);
+  const speedupFactor = exactMedianMs / linearMedianMs;
+  const improvementPct = ((exactMedianMs - linearMedianMs) / exactMedianMs) * 100;
+
+  const speedupEl = document.getElementById('texture-backend-speedup');
+  if (speedupEl) {
+    speedupEl.textContent = `Linear backend vs exact: ${improvementPct >= 0 ? '+' : ''}${improvementPct.toFixed(1)}% (${speedupFactor.toFixed(2)}x)`;
+  }
+
+  if (!wasCanvasPaused) {
+    canvasPaused = false;
+    perfAnimationId = requestAnimationFrame(perfAnimate);
+  }
+
+  return {
+    rounds,
+    warmupFrames,
+    measuredFrames,
+    workMultiplier,
+    exactFrameMs,
+    linearFrameMs,
+    exactAvgMs,
+    linearAvgMs,
+    exactMedianMs,
+    linearMedianMs,
+    speedupFactor,
+    improvementPct,
+  };
+}
+
 function perfAnimate() {
   if (!perfRunning || !perfColorTest || !perfSizeTest || !perfTextureExactTest || !perfTextureLinearTest) return;
   if (canvasPaused) return;
@@ -644,32 +788,8 @@ function perfAnimate() {
     perfSizeTest.gfx.x = (400 - w) / 2;
     perfSizeTest.gfx.y = (280 - h) / 2;
 
-    const offset = Math.sin(elapsed * 0.0024) * 10;
-    const spread = Math.sin(elapsed * 0.0018) * 2;
-    const alpha1 = 0.32 + (0.18 * (Math.sin(elapsed * 0.0016) * 0.5 + 0.5));
-    const alpha2 = 0.18 + (0.14 * (Math.cos(elapsed * 0.0012) * 0.5 + 0.5));
-
-    const exactObs = perfTextureExactTest.filter.uniforms.uShadowOffsetBlurSpread;
-    const exactColor = perfTextureExactTest.filter.uniforms.uShadowColor;
-    exactObs[0] = offset;
-    exactObs[1] = 8;
-    exactObs[3] = spread;
-    exactObs[4] = -offset * 0.6;
-    exactObs[5] = 2;
-    exactObs[7] = spread * 0.5;
-    exactColor[3] = alpha1;
-    exactColor[7] = alpha2;
-
-    const linearObs = perfTextureLinearTest.filter.uniforms.uShadowOffsetBlurSpread;
-    const linearColor = perfTextureLinearTest.filter.uniforms.uShadowColor;
-    linearObs[0] = offset;
-    linearObs[1] = 8;
-    linearObs[3] = spread;
-    linearObs[4] = -offset * 0.6;
-    linearObs[5] = 2;
-    linearObs[7] = spread * 0.5;
-    linearColor[3] = alpha1;
-    linearColor[7] = alpha2;
+    updateTextureBenchmarkState(perfTextureExactTest, elapsed);
+    updateTextureBenchmarkState(perfTextureLinearTest, elapsed);
   }
 
   fpsPixiColor!.tick();
@@ -698,6 +818,7 @@ function perfAnimate() {
 function setupPerfControls() {
   const btnAnim = document.getElementById('btn-toggle-animation')!;
   const btnCanvas = document.getElementById('btn-toggle-canvas')!;
+  const btnBench = document.getElementById('btn-run-backend-benchmark');
 
   btnAnim.addEventListener('click', () => {
     animationPaused = !animationPaused;
@@ -723,6 +844,29 @@ function setupPerfControls() {
       fpsTextureExact?.reset();
       fpsTextureLinear?.reset();
       perfAnimationId = requestAnimationFrame(perfAnimate);
+    }
+  });
+
+  if (!btnBench) return;
+
+  btnBench.addEventListener('click', async () => {
+    btnBench.setAttribute('disabled', 'true');
+    btnBench.textContent = 'Running benchmark…';
+    const speedupEl = document.getElementById('texture-backend-speedup');
+    if (speedupEl) speedupEl.textContent = 'Linear backend vs exact: measuring…';
+
+    try {
+      const result = await runTextureBackendBenchmark();
+      if (!result) {
+        if (speedupEl) speedupEl.textContent = 'Linear backend vs exact: benchmark unavailable';
+        return;
+      }
+      if (speedupEl) {
+        speedupEl.textContent = `Linear backend vs exact: ${result.improvementPct >= 0 ? '+' : ''}${result.improvementPct.toFixed(1)}% (${result.speedupFactor.toFixed(2)}x)`;
+      }
+    } finally {
+      btnBench.removeAttribute('disabled');
+      btnBench.textContent = 'Run A/B benchmark';
     }
   });
 }
@@ -765,6 +909,7 @@ function stopPerfAnimations() {
 async function init() {
   setupTabs();
   await initVisualTab();
+  window.__runTextureBackendBenchmark = runTextureBackendBenchmark;
 }
 
 init().catch(console.error);

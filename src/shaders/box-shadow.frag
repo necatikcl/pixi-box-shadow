@@ -164,7 +164,7 @@ void main(void) {
             );
 
             if (isInset > 0.5) {
-                shadowValue = clamp(insideElement - sampledAlpha, 0.0, 1.0);
+                shadowValue = (1.0 - sampledAlpha) * step(0.5, insideElement);
             } else {
                 shadowValue = sampledAlpha;
             }

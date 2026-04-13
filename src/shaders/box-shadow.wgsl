@@ -179,7 +179,7 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
       let sampledAlpha = readBlurredAlpha(input.uv - offsetUV, sigma, spreadArg);
 
       if (isInset > 0.5) {
-        shadowValue = clamp(insideElement - sampledAlpha, 0.0, 1.0);
+        shadowValue = (1.0 - sampledAlpha) * step(0.5, insideElement);
       } else {
         shadowValue = sampledAlpha;
       }

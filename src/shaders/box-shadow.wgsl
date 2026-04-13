@@ -29,6 +29,7 @@ struct BoxShadowUniforms {
   uShadowOffsetBlurSpread: array<vec4<f32>, 8>,
   uShadowColor: array<vec4<f32>, 8>,
   uShadowInset: array<vec4<f32>, 2>,
+  uMaxSigma: f32,
 };
 
 @group(0) @binding(0) var<uniform> gfu: GlobalFilterUniforms;
@@ -119,27 +120,40 @@ fn getShadowInset(index: i32) -> f32 {
   return v.w;
 }
 
-// Read pre-blurred alpha with spread adjustment (texture mode)
+// sqrt(2 * PI) ≈ 2.5066
+const SQRT_TWO_PI: f32 = 2.5066;
+
+// Read pre-blurred alpha with multi-sigma and spread (texture mode)
 fn readBlurredAlpha(uv: vec2<f32>, sigma: f32, spread: f32) -> f32 {
-  var blurred: f32;
+  let originalAlpha = textureSample(uTexture, uSampler, uv).a;
 
   if (sigma < 0.5) {
-    // No blur — read original texture alpha directly
-    blurred = textureSample(uTexture, uSampler, uv).a;
-  } else {
-    // Read from the pre-blurred alpha texture (from two-pass pipeline)
-    blurred = textureSample(uBlurredAlpha, uBlurredAlphaSampler, uv).a;
+    // No blur needed — use original alpha directly
+    if (abs(spread) > 0.5) {
+      return clamp(originalAlpha + spread * 0.1, 0.0, 1.0);
+    }
+    return originalAlpha;
   }
 
-  // Apply spread adjustment (expand/shrink the alpha mask)
+  let blurredAlpha = textureSample(uBlurredAlpha, uBlurredAlphaSampler, uv).a;
+
+  // Multi-sigma interpolation: the blur was done at uMaxSigma but this
+  // shadow may need a smaller sigma. Interpolate between original (sharp)
+  // and blurred to approximate the correct blur level.
+  let t = clamp(sigma / max(bsu.uMaxSigma, 0.001), 0.0, 1.0);
+  var alpha = mix(originalAlpha, blurredAlpha, t);
+
+  // Apply spread adjustment.
+  // The Gaussian CDF gradient at the 50% point is 1/(σ·√(2π)).
+  // Shifting the edge by `spread` pixels adds spread·gradient to alpha.
+  // Positive spread → expand (add), negative → shrink (subtract).
   if (abs(spread) > 0.5) {
-    let effectiveSigma = max(sigma, 0.5);
-    let bias = -spread / (effectiveSigma * 2.0 + 1.0);
-    let scale = 1.0 + abs(spread) / (effectiveSigma + 1.0);
-    blurred = clamp((blurred - 0.5 + bias) * scale + 0.5, 0.0, 1.0);
+    let effectiveSigma = max(sigma, 1.0);
+    let gradient = 1.0 / (effectiveSigma * SQRT_TWO_PI);
+    alpha = clamp(alpha + spread * gradient, 0.0, 1.0);
   }
 
-  return blurred;
+  return alpha;
 }
 
 @fragment

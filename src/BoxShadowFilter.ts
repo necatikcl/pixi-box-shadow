@@ -78,6 +78,7 @@ export class BoxShadowFilter extends Filter {
     uShadowInset: Float32Array;
     uShapeMode: number;
     uQuality: number;
+    uMaxSigma: number;
   };
 
   constructor(options: BoxShadowFilterOptions = {}) {
@@ -141,6 +142,7 @@ export class BoxShadowFilter extends Filter {
           uShadowOffsetBlurSpread: { value: shadowOffsetBlurSpread, type: 'vec4<f32>', size: MAX_SHADOWS },
           uShadowColor: { value: shadowColor, type: 'vec4<f32>', size: MAX_SHADOWS },
           uShadowInset: { value: shadowInset, type: 'f32', size: MAX_SHADOWS },
+          uMaxSigma: { value: 0, type: 'f32' },
         },
         // Blurred alpha texture (texture mode only) — set dynamically in apply()
         uBlurredAlpha: Texture.EMPTY.source,
@@ -282,6 +284,9 @@ export class BoxShadowFilter extends Filter {
     // Bind the blurred alpha texture for the composite shader to read
     this.resources.uBlurredAlpha = tempV.source;
     this.resources.uBlurredAlphaSampler = tempV.source.style;
+    // Tell the shader what sigma was used for the blur, so it can
+    // interpolate for shadows with smaller blur values.
+    this.uniforms.uMaxSigma = maxSigma;
 
     filterManager.applyFilter(this, input, output, clearMode);
 

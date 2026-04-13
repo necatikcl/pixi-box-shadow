@@ -42,6 +42,7 @@ uniform float uShadowInset[8];
 
 uniform int uShapeMode;   // 0 = box (SDF), 1 = texture (pre-blurred alpha)
 uniform int uQuality;     // kept for backward compat (unused in texture mode)
+uniform float uMaxSigma;  // sigma used for the blur passes (texture mode)
 
 // ============================================================
 // Fast erf approximation (Abramowitz & Stegun 7.1.26)
@@ -95,28 +96,43 @@ float roundedBoxShadow(vec2 p, vec2 halfSize, float sigma, vec4 radii) {
 }
 
 // ============================================================
-// Read pre-blurred alpha with spread adjustment (texture mode)
+// Read pre-blurred alpha with multi-sigma and spread (texture mode)
 // ============================================================
+
+// sqrt(2 * PI) ≈ 2.5066
+const float SQRT_TWO_PI = 2.5066;
+
 float readBlurredAlpha(vec2 uv, float sigma, float spread) {
-    float blurred;
+    float originalAlpha = texture(uTexture, uv).a;
 
     if (sigma < 0.5) {
-        // No blur — read original texture alpha directly
-        blurred = texture(uTexture, uv).a;
-    } else {
-        // Read from the pre-blurred alpha texture (from two-pass pipeline)
-        blurred = texture(uBlurredAlpha, uv).a;
+        // No blur needed — use original alpha directly
+        // Still apply spread as a hard expand/contract
+        if (abs(spread) > 0.5) {
+            return clamp(originalAlpha + spread * 0.1, 0.0, 1.0);
+        }
+        return originalAlpha;
     }
 
-    // Apply spread adjustment (expand/shrink the alpha mask)
+    float blurredAlpha = texture(uBlurredAlpha, uv).a;
+
+    // Multi-sigma interpolation: the blur was done at uMaxSigma but this
+    // shadow may need a smaller sigma. Interpolate between original (sharp)
+    // and blurred to approximate the correct blur level.
+    float t = clamp(sigma / max(uMaxSigma, 0.001), 0.0, 1.0);
+    float alpha = mix(originalAlpha, blurredAlpha, t);
+
+    // Apply spread adjustment.
+    // The Gaussian CDF gradient at the 50% point is 1/(σ·√(2π)).
+    // Shifting the edge by `spread` pixels adds spread·gradient to alpha.
+    // Positive spread → expand (add), negative → shrink (subtract).
     if (abs(spread) > 0.5) {
-        float effectiveSigma = max(sigma, 0.5);
-        float bias = -spread / (effectiveSigma * 2.0 + 1.0);
-        float scale = 1.0 + abs(spread) / (effectiveSigma + 1.0);
-        blurred = clamp((blurred - 0.5 + bias) * scale + 0.5, 0.0, 1.0);
+        float effectiveSigma = max(sigma, 1.0);
+        float gradient = 1.0 / (effectiveSigma * SQRT_TWO_PI);
+        alpha = clamp(alpha + spread * gradient, 0.0, 1.0);
     }
 
-    return blurred;
+    return alpha;
 }
 
 void main(void) {

@@ -14,6 +14,7 @@ interface TestCase {
   bgColor: string;
   bgColorHex: number;
   shapeMode?: 'box' | 'texture';
+  textureBlurBackend?: 'exact' | 'linear';
   quality?: number;
   drawShape?: 'rect' | 'circle' | 'star' | 'diamond' | 'triangle' | 'heart' | 'hexagon' | 'cross';
 }
@@ -431,6 +432,7 @@ async function initVisualTab() {
       boxShadow: tc.boxShadow,
       borderRadius: tc.borderRadius,
       shapeMode: tc.shapeMode,
+      textureBlurBackend: tc.textureBlurBackend,
       quality: tc.quality,
     });
     gfx.filters = [filter];
@@ -445,11 +447,14 @@ async function initVisualTab() {
 let perfAnimationId: number | null = null;
 let perfColorApp: Application | null = null;
 let perfSizeApp: Application | null = null;
+let perfTextureExactApp: Application | null = null;
+let perfTextureLinearApp: Application | null = null;
 
 class FPSTracker {
   private lastTime = performance.now();
   private el: HTMLElement;
   private frameTimes: number[] = [];
+  private lastFps: number | null = null;
 
   constructor(elementId: string) {
     this.el = document.getElementById(elementId)!;
@@ -463,6 +468,7 @@ class FPSTracker {
     if (this.frameTimes.length >= 60) {
       const avg = this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length;
       const fps = 1000 / avg;
+      this.lastFps = fps;
       this.el.textContent = `FPS: ${fps.toFixed(1)}  |  Frame: ${avg.toFixed(2)}ms`;
       this.frameTimes = [];
     }
@@ -471,7 +477,12 @@ class FPSTracker {
   reset() {
     this.frameTimes = [];
     this.lastTime = performance.now();
+    this.lastFps = null;
     this.el.textContent = '–';
+  }
+
+  getLastFps(): number | null {
+    return this.lastFps;
   }
 }
 
@@ -491,8 +502,12 @@ let canvasPaused = false;
 
 let perfColorTest: { filter: BoxShadowFilter; gfx: Graphics } | null = null;
 let perfSizeTest: { gfx: Graphics; filter: BoxShadowFilter } | null = null;
+let perfTextureExactTest: { filter: BoxShadowFilter; gfx: Graphics } | null = null;
+let perfTextureLinearTest: { filter: BoxShadowFilter; gfx: Graphics } | null = null;
 let fpsPixiColor: FPSTracker | null = null;
 let fpsPixiSize: FPSTracker | null = null;
+let fpsTextureExact: FPSTracker | null = null;
+let fpsTextureLinear: FPSTracker | null = null;
 let perfStartTime = 0;
 
 async function initPerfColorTest() {
@@ -555,8 +570,56 @@ async function initPerfSizeTest() {
   return { gfx, filter };
 }
 
+async function initPerfTextureBackendCanvas(
+  containerId: string,
+  backend: 'exact' | 'linear'
+): Promise<{ app: Application; filter: BoxShadowFilter; gfx: Graphics }> {
+  const container = document.getElementById(containerId)!;
+  const app = new Application();
+  await app.init({
+    width: 360,
+    height: 260,
+    backgroundAlpha: 0,
+    antialias: true,
+    resolution: window.devicePixelRatio || 1,
+    autoDensity: true,
+    preference: 'webgl',
+  });
+  container.appendChild(app.canvas);
+
+  const gfx = new Graphics();
+  drawStar(gfx, 70, 70, 64, 28, 5, 0xffffff);
+  gfx.x = (360 - 140) / 2;
+  gfx.y = (260 - 140) / 2;
+
+  const filter = new BoxShadowFilter({
+    shapeMode: 'texture',
+    textureBlurBackend: backend,
+    shadows: [
+      { offsetX: 0, offsetY: 8, blur: 48, spread: 0, color: 'rgba(0,0,0,1)', alpha: 0.45, inset: false },
+      { offsetX: 0, offsetY: 2, blur: 16, spread: 0, color: 'rgba(0,0,0,1)', alpha: 0.25, inset: false },
+    ],
+  });
+
+  gfx.filters = [filter];
+  app.stage.addChild(gfx);
+
+  return { app, filter, gfx };
+}
+
+async function initPerfTextureBackendTests() {
+  const exact = await initPerfTextureBackendCanvas('perf-pixi-texture-exact-container', 'exact');
+  const linear = await initPerfTextureBackendCanvas('perf-pixi-texture-linear-container', 'linear');
+  perfTextureExactApp = exact.app;
+  perfTextureLinearApp = linear.app;
+  return {
+    exact: { filter: exact.filter, gfx: exact.gfx },
+    linear: { filter: linear.filter, gfx: linear.gfx },
+  };
+}
+
 function perfAnimate() {
-  if (!perfRunning || !perfColorTest || !perfSizeTest) return;
+  if (!perfRunning || !perfColorTest || !perfSizeTest || !perfTextureExactTest || !perfTextureLinearTest) return;
   if (canvasPaused) return;
 
   const elapsed = performance.now() - perfStartTime;
@@ -580,13 +643,54 @@ function perfAnimate() {
     perfSizeTest.gfx.fill(0xffffff);
     perfSizeTest.gfx.x = (400 - w) / 2;
     perfSizeTest.gfx.y = (280 - h) / 2;
+
+    const offset = Math.sin(elapsed * 0.0024) * 10;
+    const spread = Math.sin(elapsed * 0.0018) * 2;
+    const alpha1 = 0.32 + (0.18 * (Math.sin(elapsed * 0.0016) * 0.5 + 0.5));
+    const alpha2 = 0.18 + (0.14 * (Math.cos(elapsed * 0.0012) * 0.5 + 0.5));
+
+    const exactObs = perfTextureExactTest.filter.uniforms.uShadowOffsetBlurSpread;
+    const exactColor = perfTextureExactTest.filter.uniforms.uShadowColor;
+    exactObs[0] = offset;
+    exactObs[1] = 8;
+    exactObs[3] = spread;
+    exactObs[4] = -offset * 0.6;
+    exactObs[5] = 2;
+    exactObs[7] = spread * 0.5;
+    exactColor[3] = alpha1;
+    exactColor[7] = alpha2;
+
+    const linearObs = perfTextureLinearTest.filter.uniforms.uShadowOffsetBlurSpread;
+    const linearColor = perfTextureLinearTest.filter.uniforms.uShadowColor;
+    linearObs[0] = offset;
+    linearObs[1] = 8;
+    linearObs[3] = spread;
+    linearObs[4] = -offset * 0.6;
+    linearObs[5] = 2;
+    linearObs[7] = spread * 0.5;
+    linearColor[3] = alpha1;
+    linearColor[7] = alpha2;
   }
 
   fpsPixiColor!.tick();
   fpsPixiSize!.tick();
+  fpsTextureExact!.tick();
+  fpsTextureLinear!.tick();
 
   perfColorApp!.render();
   perfSizeApp!.render();
+  perfTextureExactApp!.render();
+  perfTextureLinearApp!.render();
+
+  const exactFps = fpsTextureExact!.getLastFps();
+  const linearFps = fpsTextureLinear!.getLastFps();
+  if (exactFps && linearFps) {
+    const speedupPct = ((linearFps - exactFps) / exactFps) * 100;
+    const speedupEl = document.getElementById('texture-backend-speedup');
+    if (speedupEl) {
+      speedupEl.textContent = `Linear backend vs exact: ${speedupPct >= 0 ? '+' : ''}${speedupPct.toFixed(1)}%`;
+    }
+  }
 
   perfAnimationId = requestAnimationFrame(perfAnimate);
 }
@@ -603,6 +707,8 @@ function setupPerfControls() {
     if (animationPaused) {
       fpsPixiColor?.reset();
       fpsPixiSize?.reset();
+      fpsTextureExact?.reset();
+      fpsTextureLinear?.reset();
     }
   });
 
@@ -614,6 +720,8 @@ function setupPerfControls() {
     if (!canvasPaused && perfRunning) {
       fpsPixiColor?.reset();
       fpsPixiSize?.reset();
+      fpsTextureExact?.reset();
+      fpsTextureLinear?.reset();
       perfAnimationId = requestAnimationFrame(perfAnimate);
     }
   });
@@ -626,12 +734,19 @@ async function startPerfAnimations() {
   if (!perfColorApp) {
     perfColorTest = await initPerfColorTest();
     perfSizeTest = await initPerfSizeTest();
+    const textureTests = await initPerfTextureBackendTests();
+    perfTextureExactTest = textureTests.exact;
+    perfTextureLinearTest = textureTests.linear;
     fpsPixiColor = new FPSTracker('fps-pixi-color');
     fpsPixiSize = new FPSTracker('fps-pixi-size');
+    fpsTextureExact = new FPSTracker('fps-pixi-texture-exact');
+    fpsTextureLinear = new FPSTracker('fps-pixi-texture-linear');
     setupPerfControls();
   }
 
   perfStartTime = performance.now();
+  const speedupEl = document.getElementById('texture-backend-speedup');
+  if (speedupEl) speedupEl.textContent = 'Linear backend vs exact: measuring…';
   perfAnimationId = requestAnimationFrame(perfAnimate);
 }
 

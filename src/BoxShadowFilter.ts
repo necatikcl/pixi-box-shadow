@@ -1,7 +1,7 @@
 import { Filter, GlProgram, GpuProgram, TexturePool, Texture } from 'pixi.js';
 import type { FilterSystem } from 'pixi.js';
 import type { RenderSurface } from 'pixi.js';
-import type { BoxShadowFilterOptions, BoxShadowOptions, ShapeMode } from './types';
+import type { BoxShadowFilterOptions, BoxShadowOptions, ShapeMode, TextureBlurBackend } from './types';
 import { MAX_SHADOWS } from './types';
 import { parseBoxShadow } from './parser';
 import { calculatePadding, normalizeBorderRadius, resolveColor } from './utils';
@@ -13,6 +13,8 @@ import wgslSrc from './shaders/box-shadow.wgsl?raw';
 import blurVertexSrc from './shaders/alpha-blur.vert?raw';
 import blurFragmentSrc from './shaders/alpha-blur.frag?raw';
 import blurWgslSrc from './shaders/alpha-blur.wgsl?raw';
+import blurLinearFragmentSrc from './shaders/alpha-blur-linear.frag?raw';
+import blurLinearWgslSrc from './shaders/alpha-blur-linear.wgsl?raw';
 
 /**
  * High-performance CSS box-shadow implementation for PixiJS v8.
@@ -52,6 +54,7 @@ export class BoxShadowFilter extends Filter {
     borderRadius: 0,
     shapeMode: 'box',
     quality: 3,
+    textureBlurBackend: 'linear',
   };
 
   private _shadows: BoxShadowOptions[] = [];
@@ -60,12 +63,14 @@ export class BoxShadowFilter extends Filter {
   private _height: number = 0;
   private _shapeMode: ShapeMode;
   private _quality: number;
+  private _textureBlurBackend: TextureBlurBackend;
 
   /**
-   * Internal filter for the 1D Gaussian blur passes (texture mode only).
+   * Internal filters for 1D Gaussian blur passes (texture mode only).
    * Created lazily on first texture-mode apply.
    */
-  private _blurFilter: Filter | null = null;
+  private _blurFilterExact: Filter | null = null;
+  private _blurFilterLinear: Filter | null = null;
 
   // Typed uniform accessor
   public uniforms: {
@@ -107,6 +112,7 @@ export class BoxShadowFilter extends Filter {
 
     const shapeMode: ShapeMode = opts.shapeMode ?? 'box';
     const quality = Math.max(1, Math.min(5, Math.round(opts.quality ?? 3)));
+    const textureBlurBackend: TextureBlurBackend = opts.textureBlurBackend === 'exact' ? 'exact' : 'linear';
 
     const glProgram = GlProgram.from({
       vertex: vertexSrc,
@@ -159,6 +165,7 @@ export class BoxShadowFilter extends Filter {
     this._shadows = shadows;
     this._shapeMode = shapeMode;
     this._quality = quality;
+    this._textureBlurBackend = textureBlurBackend;
 
     this._updateShadowUniforms();
   }
@@ -167,13 +174,11 @@ export class BoxShadowFilter extends Filter {
   // Lazy blur filter creation (texture mode)
   // ----------------------------------------------------------------
 
-  private _ensureBlurFilter(): Filter {
-    if (this._blurFilter) return this._blurFilter;
-
+  private _createBlurFilter(fragment: string, wgsl: string, programName: string): Filter {
     const blurGlProgram = GlProgram.from({
       vertex: blurVertexSrc,
-      fragment: blurFragmentSrc,
-      name: 'alpha-blur-filter',
+      fragment,
+      name: programName,
     });
 
     const blurGpuProgram = GpuProgram.from({
@@ -182,12 +187,12 @@ export class BoxShadowFilter extends Filter {
         entryPoint: 'mainVertex',
       },
       fragment: {
-        source: blurWgslSrc,
+        source: wgsl,
         entryPoint: 'mainFragment',
       },
     });
 
-    this._blurFilter = new Filter({
+    return new Filter({
       glProgram: blurGlProgram,
       gpuProgram: blurGpuProgram,
       resources: {
@@ -199,8 +204,31 @@ export class BoxShadowFilter extends Filter {
       padding: 0,
       resolution: 'inherit',
     });
+  }
 
-    return this._blurFilter;
+  private _ensureBlurFilterExact(): Filter {
+    if (this._blurFilterExact) return this._blurFilterExact;
+    this._blurFilterExact = this._createBlurFilter(
+      blurFragmentSrc,
+      blurWgslSrc,
+      'alpha-blur-filter-exact',
+    );
+    return this._blurFilterExact;
+  }
+
+  private _ensureBlurFilterLinear(): Filter {
+    if (this._blurFilterLinear) return this._blurFilterLinear;
+    this._blurFilterLinear = this._createBlurFilter(
+      blurLinearFragmentSrc,
+      blurLinearWgslSrc,
+      'alpha-blur-filter-linear',
+    );
+    return this._blurFilterLinear;
+  }
+
+  private _getActiveBlurFilter(): Filter {
+    if (this._textureBlurBackend === 'exact') return this._ensureBlurFilterExact();
+    return this._ensureBlurFilterLinear();
   }
 
   // ----------------------------------------------------------------
@@ -332,7 +360,7 @@ export class BoxShadowFilter extends Filter {
    * Returns the blurred texture (caller must return it to TexturePool).
    */
   private _blurAlpha(filterManager: FilterSystem, input: Texture, sigma: number): Texture {
-    const blurFilter = this._ensureBlurFilter();
+    const blurFilter = this._getActiveBlurFilter();
     const blurUniforms = blurFilter.resources.alphaBlurUniforms.uniforms;
 
     const tempH = TexturePool.getSameSizeTexture(input);
@@ -436,6 +464,15 @@ export class BoxShadowFilter extends Filter {
   set quality(value: number) {
     this._quality = Math.max(1, Math.min(5, Math.round(value)));
     this.uniforms.uQuality = this._quality;
+  }
+
+  get textureBlurBackend(): TextureBlurBackend {
+    return this._textureBlurBackend;
+  }
+
+  set textureBlurBackend(value: TextureBlurBackend) {
+    if (value === this._textureBlurBackend) return;
+    this._textureBlurBackend = value;
   }
 
   // ----------------------------------------------------------------

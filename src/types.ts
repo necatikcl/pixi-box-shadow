@@ -35,6 +35,16 @@ export interface BoxShadowOptions {
 export type ShapeMode = 'box' | 'texture';
 
 /**
+ * Backend used by texture-mode blur pipeline.
+ *
+ * - `'exact'` — exact separable Gaussian blur using integer tap offsets.
+ *   Highest reference fidelity, but more texture fetches.
+ * - `'linear'` — linear-sampling optimized separable Gaussian blur.
+ *   Pairs neighboring taps through bilinear filtering for fewer fetches.
+ */
+export type TextureBlurBackend = 'exact' | 'linear';
+
+/**
  * Options for the BoxShadowFilter constructor.
  */
 export interface BoxShadowFilterOptions {
@@ -81,6 +91,17 @@ export interface BoxShadowFilterOptions {
    * @default 3
    */
   quality?: number;
+
+  /**
+   * Texture-mode blur backend.
+   *
+   * - `'linear'` (default) — faster, near-identical Gaussian quality.
+   * - `'exact'` — reference implementation with more texture fetches.
+   *
+   * Ignored when `shapeMode` is `'box'`.
+   * @default 'linear'
+   */
+  textureBlurBackend?: TextureBlurBackend;
 }
 
 /** Maximum number of shadows supported in a single filter pass. */

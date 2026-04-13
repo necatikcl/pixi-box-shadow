@@ -221,6 +221,7 @@
     <div class="sub-tabs">
       <button class="sub-tab-btn active" data-subtab="color">Shadow Color Transition</button>
       <button class="sub-tab-btn" data-subtab="size">Element Size Transition</button>
+      <button class="sub-tab-btn" data-subtab="backend">Texture Backend A/B</button>
     </div>
 
     <div class="sub-content active" id="subtab-color">
@@ -237,6 +238,25 @@
         <div class="fps-counter" id="fps-pixi-size">–</div>
       </div>
       <p class="perf-note">Element width/height animating continuously. Measures cost of geometry changes that require shadow recalculation.</p>
+    </div>
+
+    <div class="sub-content" id="subtab-backend">
+      <div style="display:flex; gap:24px; justify-content:center; flex-wrap:wrap; padding:0 20px;">
+        <div class="perf-single">
+          <div style="font-size:13px; color:#555; margin-bottom:8px;">Texture backend: <strong>exact</strong></div>
+          <div class="perf-box-container" id="perf-pixi-texture-exact-container" style="width:360px; height:260px;"></div>
+          <div class="fps-counter" id="fps-pixi-texture-exact">–</div>
+        </div>
+        <div class="perf-single">
+          <div style="font-size:13px; color:#555; margin-bottom:8px;">Texture backend: <strong>linear</strong></div>
+          <div class="perf-box-container" id="perf-pixi-texture-linear-container" style="width:360px; height:260px;"></div>
+          <div class="fps-counter" id="fps-pixi-texture-linear">–</div>
+        </div>
+      </div>
+      <p class="perf-note" id="texture-backend-speedup" style="font-size:14px; color:#2e7d32; font-weight:700;">
+        Linear backend vs exact: measuring…
+      </p>
+      <p class="perf-note">Both canvases run the same texture-mode animation and blur workload. The right canvas uses the new linear-sampling optimized backend.</p>
     </div>
 
     <div class="perf-controls">

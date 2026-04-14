@@ -1,3 +1,13 @@
+# Rulesets cannot bypass as "GitHub Actions": pushes use github-actions[bot], which is not a
+# GitHub App and does not appear in the bypass list. Eligible bypass actors are documented at
+# https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository#granting-bypass-permissions-for-your-branch-or-tag-ruleset
+#
+# This workflow uses a PAT so git pushes are authenticated as that user. Use a fine-grained PAT
+# for an account that already bypasses your ruleset (e.g. you as repo admin). Add repo secret
+# SEMANTIC_RELEASE_GITHUB_TOKEN. Do not reuse it in other workflows unless you accept the same
+# bypass scope. Alternative: create a GitHub App, add it to the ruleset bypass list, and use
+# actions/create-github-app-token instead of a PAT.
+
 name: Release
 
 on:
@@ -23,6 +33,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.SEMANTIC_RELEASE_GITHUB_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -37,6 +48,6 @@ jobs:
 
       - name: Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.SEMANTIC_RELEASE_GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npx semantic-release

@@ -1,0 +1,77 @@
+---
+description: Use Conventional Commits for all git commits (semantic-release / Angular preset)
+alwaysApply: true
+---
+
+# Conventional Commits
+
+This repo uses **semantic-release** with the **Angular** commit-analyzer preset. Every commit message the AI proposes (or helps the user write) must follow this format so releases version correctly.
+
+## Format
+
+```
+<type>(<optional scope>): <short description in imperative mood>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+- **Subject line**: imperative, lowercase after the colon, ~72 chars, **no trailing period**.
+- **Scope**: optional noun in parentheses; use when it clarifies the area (`parser`, `examples`, `README`).
+
+## Types (common)
+
+| Type       | Use for                                              |
+| ---------- | ---------------------------------------------------- |
+| `feat`     | New user-facing behavior or API                      |
+| `fix`      | Bug fix                                              |
+| `docs`     | Documentation only                                   |
+| `style`    | Formatting, whitespace, semicolons (no logic change) |
+| `refactor` | Internal change, same outward behavior               |
+| `perf`     | Performance improvement                              |
+| `test`     | Tests only                                           |
+| `chore`    | Maintenance, deps, tooling (no prod code change)     |
+| `ci`       | CI / workflow changes                                |
+| `build`    | Build system, bundler config                         |
+
+## Breaking changes
+
+Use **one** of:
+
+- `feat!: description` or `fix!: description` (breaking marker in type)
+- Or a footer line: `BREAKING CHANGE: explanation`
+
+## Project-specific release rules
+
+These commit shapes trigger a **patch** release even when the default preset would not:
+
+- `docs(README): ...` — patch
+- `refactor: ...` — patch
+- `style: ...` — patch
+
+Prefer **`docs(README):`** (not plain `docs:`) when only the README changes and a patch release is desired.
+
+## Examples
+
+```text
+fix: correct blur radius when spread is negative
+
+feat(filter): add inset shadow support
+
+feat!: drop Node 18; require Node 20+
+
+docs(README): fix install snippet for pnpm
+
+chore: bump devDependencies
+
+ci: add release workflow
+```
+
+## Anti-patterns
+
+- Vague subjects: `update stuff`, `fixes`, `wip`
+- Non-conventional types: `added`, `minor fix`, `patch`
+- Past tense in subject: ~~`fixed bug`~~ → `fix: resolve overflow in sdf pass`
+
+When squashing or merging, the **final** commit message on `main` should still match this convention—semantic-release only sees merged history.

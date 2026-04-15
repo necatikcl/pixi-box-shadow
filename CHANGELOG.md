@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/necatikcl/pixi-box-shadow/compare/v1.0.2...v1.1.0) (2026-04-15)
+
+
+### Features
+
+* test script ([eff79c7](https://github.com/necatikcl/pixi-box-shadow/commit/eff79c78d2da0e2b60b3a513ad50d0348d6e2cc0))
+
 ## [1.0.2](https://github.com/necatikcl/pixi-box-shadow/compare/v1.0.1...v1.0.2) (2026-04-15)
 
 ## [1.0.1](https://github.com/necatikcl/pixi-box-shadow/compare/v1.0.0...v1.0.1) (2026-04-15)

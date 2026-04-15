@@ -16,6 +16,8 @@ interface TestCase {
   bgColorHex: number;
   shapeMode?: 'box' | 'texture';
   quality?: number;
+  /** Radians — box mode SDF follows rotated local rect, not the AABB */
+  rotation?: number;
   drawShape?: 'rect' | 'circle' | 'star' | 'diamond' | 'triangle' | 'heart' | 'hexagon' | 'cross';
 }
 
@@ -39,6 +41,7 @@ const TEST_CASES: TestCase[] = [
   { label: 'Offset only, no blur/spread', boxShadow: '8px 8px 0 0 rgba(0, 0, 0, 0.8)', borderRadius: 0, boxWidth: 160, boxHeight: 80, bgColor: '#ffffff', bgColorHex: 0xffffff },
   { label: 'Multi-color shadows', boxShadow: '-6px -6px 16px rgba(255, 0, 0, 0.5), 6px 6px 16px rgba(0, 100, 255, 0.5)', borderRadius: 12, boxWidth: 160, boxHeight: 80, bgColor: '#ffffff', bgColorHex: 0xffffff },
   { label: 'Layered neon glow (multi-color)', boxShadow: '0 0 10px 2px rgba(255, 0, 200, 0.7), 0 0 30px 8px rgba(0, 200, 255, 0.4)', borderRadius: 12, boxWidth: 160, boxHeight: 80, bgColor: '#1e293b', bgColorHex: 0x1e293b },
+  { label: 'Rotated 40° (box mode — shadow follows rect)', boxShadow: '6px 8px 14px rgba(0, 0, 0, 0.45)', borderRadius: 12, boxWidth: 160, boxHeight: 80, bgColor: '#ffffff', bgColorHex: 0xffffff, rotation: (40 * Math.PI) / 180 },
 
   // ── Texture mode — shapes ─────────────────────────────────
   { label: 'TEXTURE: circle', boxShadow: '0 4px 10px rgba(0, 0, 0, 0.5)', borderRadius: 0, boxWidth: 80, boxHeight: 80, bgColor: '#ffffff', bgColorHex: 0xffffff, shapeMode: 'texture', drawShape: 'circle' },
@@ -327,6 +330,10 @@ function createCSSElement(tc: TestCase): HTMLElement {
   el.style.background = tc.bgColor;
   el.style.borderRadius = cssRadiusStr;
   el.style.boxShadow = tc.boxShadow;
+  if (tc.rotation != null) {
+    el.style.transformOrigin = '0 0';
+    el.style.transform = `rotate(${tc.rotation * (180 / Math.PI)}deg)`;
+  }
   return el;
 }
 
@@ -624,6 +631,7 @@ async function initVisualTab() {
     const demoY = TEST_CELL_PAD_Y + lh + LABEL_DEMO_GAP_PX;
     gfx.x = (CANVAS_WIDTH - tc.boxWidth) / 2;
     gfx.y = demoY;
+    if (tc.rotation != null) gfx.rotation = tc.rotation;
 
     const filter = new BoxShadowFilter({
       boxShadow: tc.boxShadow,
@@ -713,8 +721,8 @@ async function initPerfColorTest() {
   const gfx = new Graphics();
   gfx.roundRect(0, 0, BOX_W, BOX_H, BORDER_RADIUS);
   gfx.fill(0xffffff);
-  gfx.x = (PERF_VIEW_W - BOX_W) / 2;
-  gfx.y = (PERF_VIEW_H - BOX_H) / 2;
+  gfx.pivot.set(BOX_W / 2, BOX_H / 2);
+  gfx.position.set(PERF_VIEW_W / 2, PERF_VIEW_H / 2);
 
   const filter = new BoxShadowFilter({
     shadows: [{ offsetX: 0, offsetY: 0, blur: 20, spread: 5, color: 'rgb(255,0,0)', alpha: 0.6, inset: false }],
@@ -744,8 +752,8 @@ async function initPerfSizeTest() {
   const gfx = new Graphics();
   gfx.roundRect(0, 0, BOX_W, BOX_H, BORDER_RADIUS);
   gfx.fill(0xffffff);
-  gfx.x = (PERF_VIEW_W - BOX_W) / 2;
-  gfx.y = (PERF_VIEW_H - BOX_H) / 2;
+  gfx.pivot.set(BOX_W / 2, BOX_H / 2);
+  gfx.position.set(PERF_VIEW_W / 2, PERF_VIEW_H / 2);
 
   const filter = new BoxShadowFilter({
     boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
@@ -780,8 +788,13 @@ function perfAnimate() {
     perfSizeTest.gfx.clear();
     perfSizeTest.gfx.roundRect(0, 0, w, h, BORDER_RADIUS);
     perfSizeTest.gfx.fill(0xffffff);
-    perfSizeTest.gfx.x = (PERF_VIEW_W - w) / 2;
-    perfSizeTest.gfx.y = (PERF_VIEW_H - h) / 2;
+    perfSizeTest.gfx.pivot.set(w / 2, h / 2);
+    perfSizeTest.gfx.position.set(PERF_VIEW_W / 2, PERF_VIEW_H / 2);
+
+    // Continuous rotation (box-mode shadow uses local-space SDF while filter sees AABB)
+    const rotation = elapsed * 0.0011;
+    perfColorTest.gfx.rotation = rotation;
+    perfSizeTest.gfx.rotation = rotation;
   }
 
   fpsPixiColor!.tick();

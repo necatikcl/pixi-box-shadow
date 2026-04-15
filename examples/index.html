@@ -541,8 +541,8 @@
             </div>
           </div>
         </div>
-        <p class="perf-note">Shadow color transitions from red → blue → red every frame. Measures cost of dynamic shadow
-          property updates.</p>
+        <p class="perf-note">Shadow color transitions from red → blue → red; the box also rotates continuously to stress
+          box-mode SDF under a changing AABB. Measures dynamic shadow + transform updates.</p>
       </div>
 
       <div class="sub-content" id="subtab-size" role="tabpanel" aria-labelledby="subtab-trigger-size" hidden inert>
@@ -554,8 +554,8 @@
             </div>
           </div>
         </div>
-        <p class="perf-note">Element width/height animating continuously. Measures cost of geometry changes that require
-          shadow recalculation.</p>
+        <p class="perf-note">Element width/height animating with the same shared rotation as the color demo. Measures
+          geometry + rotation under filter bounds.</p>
       </div>
 
       <div class="perf-controls">

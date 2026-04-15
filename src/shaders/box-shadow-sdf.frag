@@ -16,6 +16,14 @@ uniform vec2 uElementSize;
 uniform vec4 uBorderRadius;
 uniform vec2 uPaddingOffset;
 
+/** scaleX, scaleY, boundsMinX, boundsMinY — map filter pixel to world when uCoordMode is set */
+uniform vec4 uFilterToWorld;
+/** Linear part of world→local: (a, c, b, d) for local.x = a*wx+c*wy+tx, local.y = b*wx+d*wy+ty */
+uniform vec4 uWLinear;
+/** (tx, ty, coordMode, _) — coordMode 1 = evaluate SDF in container local space (rotation-safe) */
+uniform vec4 uWTrans;
+uniform vec2 uLocalRectCenter;
+
 uniform int uShadowCount;
 uniform vec4 uShadowOffsetBlurSpread[8];
 uniform vec4 uShadowColor[8];
@@ -68,9 +76,19 @@ float roundedBoxShadow(vec2 p, vec2 halfSize, float sigma, vec4 radii) {
 void main(void) {
     vec4 texColor = texture(uTexture, vTextureCoord);
 
-    vec2 localPos = vPixelCoord - uPaddingOffset;
-    vec2 elementCenter = uElementSize * 0.5;
-    vec2 p = localPos - elementCenter;
+    vec2 p;
+    if (uWTrans.z > 0.5) {
+        vec2 world = vPixelCoord * uFilterToWorld.xy + uFilterToWorld.zw;
+        vec2 local = vec2(
+            dot(uWLinear.xy, world),
+            dot(uWLinear.zw, world)
+        ) + uWTrans.xy;
+        p = local - uLocalRectCenter;
+    } else {
+        vec2 localPos = vPixelCoord - uPaddingOffset;
+        vec2 elementCenter = uElementSize * 0.5;
+        p = localPos - elementCenter;
+    }
     vec2 halfSize = uElementSize * 0.5;
 
     float maxR = min(halfSize.x, halfSize.y);

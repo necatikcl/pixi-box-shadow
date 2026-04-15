@@ -17,6 +17,11 @@ struct BoxShadowUniforms {
   _pad0: i32,
   _pad1: i32,
   _pad2: i32,
+  uFilterToWorld: vec4<f32>,
+  uWLinear: vec4<f32>,
+  uWTrans: vec4<f32>,
+  uLocalRectCenter: vec2<f32>,
+  _padShape: vec2<f32>,
   uShadowOffsetBlurSpread: array<vec4<f32>, 8>,
   uShadowColor: array<vec4<f32>, 8>,
   uShadowInset: array<vec4<f32>, 2>,
@@ -111,9 +116,19 @@ fn getShadowInset(index: i32) -> f32 {
 fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
   let texColor = textureSample(uTexture, uSampler, input.uv);
 
-  let localPos = input.pixelCoord - bsu.uPaddingOffset;
-  let elementCenter = bsu.uElementSize * 0.5;
-  let p = localPos - elementCenter;
+  var p: vec2<f32>;
+  if (bsu.uWTrans.z > 0.5) {
+    let world = input.pixelCoord * bsu.uFilterToWorld.xy + bsu.uFilterToWorld.zw;
+    let local = vec2<f32>(
+      dot(bsu.uWLinear.xy, world),
+      dot(bsu.uWLinear.zw, world)
+    ) + bsu.uWTrans.xy;
+    p = local - bsu.uLocalRectCenter;
+  } else {
+    let localPos = input.pixelCoord - bsu.uPaddingOffset;
+    let elementCenter = bsu.uElementSize * 0.5;
+    p = localPos - elementCenter;
+  }
   let halfSize = bsu.uElementSize * 0.5;
 
   let maxR = min(halfSize.x, halfSize.y);

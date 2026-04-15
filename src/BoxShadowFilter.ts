@@ -1,4 +1,5 @@
-import { Filter, GlProgram, GpuProgram, TexturePool, Texture } from 'pixi.js';
+import { Filter, GlProgram, GpuProgram, Matrix, TexturePool, Texture } from 'pixi.js';
+import type { Container } from 'pixi.js';
 import type { FilterSystem } from 'pixi.js';
 import type { RenderSurface } from 'pixi.js';
 import type { BoxShadowFilterOptions, BoxShadowOptions, ShapeMode } from './types';
@@ -15,6 +16,12 @@ import textureWgslSrc from './shaders/box-shadow-texture.wgsl?raw';
 import blurVertexSrc from './shaders/alpha-blur.vert?raw';
 import blurFragmentSrc from './shaders/alpha-blur.frag?raw';
 import blurWgslSrc from './shaders/alpha-blur.wgsl?raw';
+
+/** @internal Pixi filter stack payload — not public API */
+interface ActiveFilterData {
+  container: Container | null;
+  bounds: { minX: number; minY: number; width: number; height: number };
+}
 
 /**
  * High-performance CSS box-shadow implementation for PixiJS v8.
@@ -69,6 +76,9 @@ export class BoxShadowFilter extends Filter {
    */
   private _blurFilter: Filter | null = null;
 
+  /** Scratch matrix for world→local per apply (box mode, rotation). */
+  private readonly _invWorld = new Matrix();
+
   /** GPU uniforms for the main filter (`texture` mode adds uShapeMode, uQuality, …). */
   public uniforms: {
     uElementSize: Float32Array;
@@ -82,6 +92,11 @@ export class BoxShadowFilter extends Filter {
     uQuality?: number;
     uMaxSigma?: number;
     uRenderElement?: number;
+    uFilterToWorld?: Float32Array;
+    uWLinear?: Float32Array;
+    uWTrans?: Float32Array;
+    uLocalRectCenter?: Float32Array;
+    _padShape?: Float32Array;
   };
 
   constructor(options: BoxShadowFilterOptions = {}) {
@@ -114,6 +129,12 @@ export class BoxShadowFilter extends Filter {
     const shadowOffsetBlurSpread = new Float32Array(MAX_SHADOWS * 4);
     const shadowColor = new Float32Array(MAX_SHADOWS * 4);
     const shadowInset = new Float32Array(MAX_SHADOWS);
+
+    const filterToWorld = new Float32Array([1, 1, 0, 0]);
+    const wLinear = new Float32Array([1, 0, 0, 1]);
+    const wTrans = new Float32Array([0, 0, 0, 0]);
+    const localRectCenter = new Float32Array([0, 0]);
+    const padShape = new Float32Array([0, 0]);
 
     const glProgram = GlProgram.from({
       vertex: vertexSrc,
@@ -155,6 +176,11 @@ export class BoxShadowFilter extends Filter {
           _pad0: { value: 0, type: 'i32' },
           _pad1: { value: 0, type: 'i32' },
           _pad2: { value: 0, type: 'i32' },
+          uFilterToWorld: { value: filterToWorld, type: 'vec4<f32>' },
+          uWLinear: { value: wLinear, type: 'vec4<f32>' },
+          uWTrans: { value: wTrans, type: 'vec4<f32>' },
+          uLocalRectCenter: { value: localRectCenter, type: 'vec2<f32>' },
+          _padShape: { value: padShape, type: 'vec2<f32>' },
           uShadowOffsetBlurSpread: { value: shadowOffsetBlurSpread, type: 'vec4<f32>', size: MAX_SHADOWS },
           uShadowColor: { value: shadowColor, type: 'vec4<f32>', size: MAX_SHADOWS },
           uShadowInset: { value: shadowInset, type: 'f32', size: MAX_SHADOWS },
@@ -231,8 +257,84 @@ export class BoxShadowFilter extends Filter {
   // Filter apply — always derive size from input texture
   // ----------------------------------------------------------------
 
+  /**
+   * Box mode: map filter pixels through world space into the filtered container's
+   * local space so the rounded-rect SDF matches rotated/skewed draws (not just their AABB).
+   */
+  private _updateBoxShapeSpace(filterManager: FilterSystem, input: Texture, pad: number): void {
+    const fd = (filterManager as unknown as { _activeFilterData?: ActiveFilterData })._activeFilterData;
+    const container = fd?.container ?? null;
+    const bounds = fd?.bounds;
+
+    const uFtw = this.uniforms.uFilterToWorld!;
+    const uWl = this.uniforms.uWLinear!;
+    const uWt = this.uniforms.uWTrans!;
+    const uLrc = this.uniforms.uLocalRectCenter!;
+
+    const frameW = input.frame.width;
+    const frameH = input.frame.height;
+
+    const setLegacyElementSize = (): void => {
+      uWt[2] = 0;
+      const w = input.frame.width - pad * 2;
+      const h = input.frame.height - pad * 2;
+      if (w === this._width && h === this._height) return;
+      this._width = w;
+      this._height = h;
+      this.uniforms.uElementSize[0] = w;
+      this.uniforms.uElementSize[1] = h;
+    };
+
+    if (!container || !bounds || frameW <= 0 || frameH <= 0) {
+      setLegacyElementSize();
+      return;
+    }
+
+    const lb = container.getLocalBounds();
+    const lw = lb.width;
+    const lh = lb.height;
+    if (lw < 1e-4 || lh < 1e-4) {
+      setLegacyElementSize();
+      return;
+    }
+
+    this._invWorld.copyFrom(container.worldTransform).invert();
+    const inv = this._invWorld;
+
+    uFtw[0] = bounds.width / frameW;
+    uFtw[1] = bounds.height / frameH;
+    uFtw[2] = bounds.minX;
+    uFtw[3] = bounds.minY;
+
+    uWl[0] = inv.a;
+    uWl[1] = inv.c;
+    uWl[2] = inv.b;
+    uWl[3] = inv.d;
+
+    uWt[0] = inv.tx;
+    uWt[1] = inv.ty;
+    uWt[2] = 1;
+
+    uLrc[0] = lb.x + lw * 0.5;
+    uLrc[1] = lb.y + lh * 0.5;
+
+    if (lw !== this._width || lh !== this._height) {
+      this._width = lw;
+      this._height = lh;
+    }
+    this.uniforms.uElementSize[0] = lw;
+    this.uniforms.uElementSize[1] = lh;
+  }
+
   apply(filterManager: FilterSystem, input: Texture, output: RenderSurface, clearMode: boolean): void {
     const pad = this.padding;
+
+    if (this._shapeMode !== 'texture') {
+      this._updateBoxShapeSpace(filterManager, input, pad);
+      filterManager.applyFilter(this, input, output, clearMode);
+      return;
+    }
+
     const w = input.frame.width - pad * 2;
     const h = input.frame.height - pad * 2;
 
@@ -241,12 +343,6 @@ export class BoxShadowFilter extends Filter {
       this._height = h;
       this.uniforms.uElementSize[0] = w;
       this.uniforms.uElementSize[1] = h;
-    }
-
-    // Box mode: single pass (analytical SDF, unchanged)
-    if (this._shapeMode !== 'texture') {
-      filterManager.applyFilter(this, input, output, clearMode);
-      return;
     }
 
     // Texture mode: two-pass separable Gaussian blur + composite

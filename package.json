@@ -1,6 +1,6 @@
 {
   "name": "pixi-box-shadow",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "High-performance CSS box-shadow implementation for PixiJS v8 using SDF analytical Gaussian blur",
   "type": "module",
   "main": "dist/pixi-box-shadow.cjs",

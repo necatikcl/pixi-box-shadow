@@ -38,6 +38,10 @@
   "publishConfig": {
     "access": "public"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/necatikcl/pixi-box-shadow.git"
+  },
   "peerDependencies": {
     "pixi.js": ">=8.0.0"
   },

@@ -20,6 +20,7 @@ struct BoxShadowUniforms {
   uShadowInset: array<vec4<f32>, 2>,
   uMaxSigma: f32,
   uRenderElement: i32,
+  uWorldAlpha: f32,
 };
 
 @group(0) @binding(0) var<uniform> gfu: GlobalFilterUniforms;
@@ -132,6 +133,12 @@ fn readBlurredAlpha(uv: vec2<f32>, sigma: f32, spread: f32) -> f32 {
 fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
   let texColor = textureSample(uTexture, uSampler, input.uv);
 
+  if (bsu.uWorldAlpha < 1e-5) {
+    return vec4<f32>(0.0);
+  }
+  let wa = bsu.uWorldAlpha;
+  let texFull = texColor / wa;
+
   let localPos = input.pixelCoord - bsu.uPaddingOffset;
   let elementCenter = bsu.uElementSize * 0.5;
   let p = localPos - elementCenter;
@@ -143,7 +150,7 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
   let elementSDF = sdRoundedBox(p, halfSize, baseRadii);
   var insideElement: f32;
   if (bsu.uShapeMode == 1) {
-    insideElement = texColor.a;
+    insideElement = texFull.a;
   } else {
     insideElement = 1.0 - smoothstep(-0.5, 0.5, elementSDF);
   }
@@ -177,11 +184,12 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
         spreadArg = spread;
       }
       let sampledAlpha = readBlurredAlpha(input.uv - offsetUV, sigma, spreadArg);
+      let aFull = clamp(sampledAlpha / wa, 0.0, 1.0);
 
       if (isInset > 0.5) {
-        shadowValue = (1.0 - sampledAlpha) * step(0.5, insideElement);
+        shadowValue = (1.0 - aFull) * step(0.5, insideElement);
       } else {
-        shadowValue = sampledAlpha;
+        shadowValue = aFull;
       }
 
       let shadow = vec4<f32>(shadowCol.rgb * shadowCol.a * shadowValue, shadowCol.a * shadowValue);
@@ -214,14 +222,14 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
 
   // Compositing
   if (bsu.uRenderElement == 1) {
-    // Full composite: outer shadows + element + inset shadows
+    // Full composite: outer shadows + element + inset shadows; then CSS-style group opacity.
     var color = outerResult;
-    color = texColor + color * (1.0 - texColor.a);
+    color = texFull + color * (1.0 - texFull.a);
     color = vec4<f32>(
       insetResult.rgb + color.rgb * (1.0 - insetResult.a),
       insetResult.a + color.a * (1.0 - insetResult.a)
     );
-    return color;
+    return color * wa;
   } else {
     // Shadows only (no element) — intermediate per-sigma pass
     return outerResult;

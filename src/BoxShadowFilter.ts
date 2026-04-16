@@ -97,6 +97,7 @@ export class BoxShadowFilter extends Filter {
     uWTrans?: Float32Array;
     uLocalRectCenter?: Float32Array;
     _padShape?: Float32Array;
+    uWorldAlpha: number;
   };
 
   constructor(options: BoxShadowFilterOptions = {}) {
@@ -167,6 +168,7 @@ export class BoxShadowFilter extends Filter {
           uShadowInset: { value: shadowInset, type: 'f32', size: MAX_SHADOWS },
           uMaxSigma: { value: 0, type: 'f32' },
           uRenderElement: { value: 1, type: 'i32' },
+          uWorldAlpha: { value: 1, type: 'f32' },
         }
       : {
           uElementSize: { value: new Float32Array([0, 0]), type: 'vec2<f32>' },
@@ -184,6 +186,7 @@ export class BoxShadowFilter extends Filter {
           uShadowOffsetBlurSpread: { value: shadowOffsetBlurSpread, type: 'vec4<f32>', size: MAX_SHADOWS },
           uShadowColor: { value: shadowColor, type: 'vec4<f32>', size: MAX_SHADOWS },
           uShadowInset: { value: shadowInset, type: 'f32', size: MAX_SHADOWS },
+          uWorldAlpha: { value: 1, type: 'f32' },
         };
 
     super({
@@ -258,6 +261,29 @@ export class BoxShadowFilter extends Filter {
   // ----------------------------------------------------------------
 
   /**
+   * Pixi v8 stores cumulative alpha on the render group (`renderGroup.worldAlpha` /
+   * `parentRenderGroup.worldAlpha * alpha`), not `container.worldAlpha`.
+   */
+  private _resolveFilterTargetWorldAlpha(container: Container | null): number {
+    if (!container) return 1;
+    type RG = { worldAlpha: number };
+    const c = container as Container & {
+      renderGroup?: RG;
+      parentRenderGroup?: RG;
+      alpha: number;
+    };
+    if (c.renderGroup) return c.renderGroup.worldAlpha;
+    if (c.parentRenderGroup) return c.parentRenderGroup.worldAlpha * c.alpha;
+    return c.alpha;
+  }
+
+  /** Match CSS group `opacity`: composite full-opacity then multiply once by this factor. */
+  private _syncWorldAlpha(filterManager: FilterSystem): void {
+    const fd = (filterManager as unknown as { _activeFilterData?: ActiveFilterData })._activeFilterData;
+    this.uniforms.uWorldAlpha = this._resolveFilterTargetWorldAlpha(fd?.container ?? null);
+  }
+
+  /**
    * Box mode: map filter pixels through world space into the filtered container's
    * local space so the rounded-rect SDF matches rotated/skewed draws (not just their AABB).
    */
@@ -328,6 +354,7 @@ export class BoxShadowFilter extends Filter {
 
   apply(filterManager: FilterSystem, input: Texture, output: RenderSurface, clearMode: boolean): void {
     const pad = this.padding;
+    this._syncWorldAlpha(filterManager);
 
     if (this._shapeMode !== 'texture') {
       this._updateBoxShapeSpace(filterManager, input, pad);

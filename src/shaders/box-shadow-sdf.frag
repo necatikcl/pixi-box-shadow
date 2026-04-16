@@ -29,6 +29,9 @@ uniform vec4 uShadowOffsetBlurSpread[8];
 uniform vec4 uShadowColor[8];
 uniform float uShadowInset[8];
 
+/** Display-object alpha (worldAlpha) — scales shadows with the element like CSS opacity */
+uniform float uWorldAlpha;
+
 float erf_approx(float x) {
     float ax = abs(x);
     float t = 1.0 / (1.0 + 0.3275911 * ax);
@@ -75,6 +78,14 @@ float roundedBoxShadow(vec2 p, vec2 halfSize, float sigma, vec4 radii) {
 
 void main(void) {
     vec4 texColor = texture(uTexture, vTextureCoord);
+
+    // CSS group opacity: flatten shadow + fill at full opacity, then multiply once (not shadow×α + fill×α).
+    if (uWorldAlpha < 1e-5) {
+        finalColor = vec4(0.0);
+        return;
+    }
+    float wa = uWorldAlpha;
+    vec4 texFull = texColor / wa;
 
     vec2 p;
     if (uWTrans.z > 0.5) {
@@ -135,11 +146,11 @@ void main(void) {
     }
 
     vec4 color = outerResult;
-    color = texColor + color * (1.0 - texColor.a);
+    color = texFull + color * (1.0 - texFull.a);
     color = vec4(
         insetResult.rgb + color.rgb * (1.0 - insetResult.a),
         insetResult.a + color.a * (1.0 - insetResult.a)
     );
 
-    finalColor = color;
+    finalColor = color * wa;
 }

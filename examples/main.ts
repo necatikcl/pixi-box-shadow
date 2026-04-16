@@ -19,6 +19,11 @@ interface TestCase {
   /** Radians — box mode SDF follows rotated local rect, not the AABB */
   rotation?: number;
   drawShape?: 'rect' | 'circle' | 'star' | 'diamond' | 'triangle' | 'heart' | 'hexagon' | 'cross';
+  /**
+   * Display-object / CSS opacity for the demo shape (0–1). Scales the whole draw including shadow,
+   * matching CSS `opacity` on the comparison column.
+   */
+  elementAlpha?: number;
 }
 
 const TEST_CASES: TestCase[] = [
@@ -43,6 +48,11 @@ const TEST_CASES: TestCase[] = [
   { label: 'Layered neon glow (multi-color)', boxShadow: '0 0 10px 2px rgba(255, 0, 200, 0.7), 0 0 30px 8px rgba(0, 200, 255, 0.4)', borderRadius: 12, boxWidth: 160, boxHeight: 80, bgColor: '#1e293b', bgColorHex: 0x1e293b },
   { label: 'Rotated 40° (box mode — shadow follows rect)', boxShadow: '6px 8px 14px rgba(0, 0, 0, 0.45)', borderRadius: 12, boxWidth: 160, boxHeight: 80, bgColor: '#ffffff', bgColorHex: 0xffffff, rotation: (40 * Math.PI) / 180 },
 
+  // ── Element alpha (matches CSS opacity on shape + shadow) ──
+  { label: 'Alpha 0.35 — outer shadow fades with element', boxShadow: '0 6px 18px rgba(0, 0, 0, 0.55)', borderRadius: 12, boxWidth: 160, boxHeight: 80, bgColor: '#ffffff', bgColorHex: 0xffffff, elementAlpha: 0.35 },
+  { label: 'Alpha 0.4 — inset + outer', boxShadow: '0 4px 10px rgba(0, 0, 0, 0.45), inset 0 2px 8px rgba(0, 0, 0, 0.35)', borderRadius: 10, boxWidth: 160, boxHeight: 80, bgColor: '#f8fafc', bgColorHex: 0xf8fafc, elementAlpha: 0.4 },
+  { label: 'Alpha 0.3 — colored glow', boxShadow: '0 0 28px 8px rgba(59, 130, 246, 0.55)', borderRadius: 12, boxWidth: 160, boxHeight: 80, bgColor: '#1e293b', bgColorHex: 0x1e293b, elementAlpha: 0.3 },
+
   // ── Texture mode — shapes ─────────────────────────────────
   { label: 'TEXTURE: circle', boxShadow: '0 4px 10px rgba(0, 0, 0, 0.5)', borderRadius: 0, boxWidth: 80, boxHeight: 80, bgColor: '#ffffff', bgColorHex: 0xffffff, shapeMode: 'texture', drawShape: 'circle' },
   { label: 'TEXTURE: star', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)', borderRadius: 0, boxWidth: 80, boxHeight: 80, bgColor: '#ffffff', bgColorHex: 0xffffff, shapeMode: 'texture', drawShape: 'star' },
@@ -59,6 +69,8 @@ const TEST_CASES: TestCase[] = [
   { label: 'TEXTURE: inset shadow (circle)', boxShadow: 'inset 0 3px 10px rgba(0, 0, 0, 0.6)', borderRadius: 0, boxWidth: 80, boxHeight: 80, bgColor: '#ffffff', bgColorHex: 0xffffff, shapeMode: 'texture', drawShape: 'circle' },
   { label: 'TEXTURE: multi-shadow (star)', boxShadow: '0 2px 6px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25)', borderRadius: 0, boxWidth: 80, boxHeight: 80, bgColor: '#ffffff', bgColorHex: 0xffffff, shapeMode: 'texture', drawShape: 'star' },
   { label: 'TEXTURE: hard shadow (hexagon)', boxShadow: '5px 5px 0 rgba(0, 0, 0, 0.7)', borderRadius: 0, boxWidth: 80, boxHeight: 80, bgColor: '#ffffff', bgColorHex: 0xffffff, shapeMode: 'texture', drawShape: 'hexagon' },
+  { label: 'TEXTURE: alpha 0.35 (star)', boxShadow: '0 6px 16px rgba(0, 0, 0, 0.5)', borderRadius: 0, boxWidth: 80, boxHeight: 80, bgColor: '#ffffff', bgColorHex: 0xffffff, shapeMode: 'texture', drawShape: 'star', elementAlpha: 0.35 },
+  { label: 'TEXTURE: alpha 0.35 + inset (circle)', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4), inset 0 3px 10px rgba(0, 0, 0, 0.45)', borderRadius: 0, boxWidth: 80, boxHeight: 80, bgColor: '#ffffff', bgColorHex: 0xffffff, shapeMode: 'texture', drawShape: 'circle', elementAlpha: 0.35 },
 ];
 
 // ============================================================
@@ -290,6 +302,12 @@ function buildShapeSVG(shape: string, size: number, fill: string): string {
   return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}">${content}</svg>`;
 }
 
+function applyDemoElementOpacity(el: HTMLElement, tc: TestCase): void {
+  if (tc.elementAlpha != null && tc.elementAlpha !== 1) {
+    el.style.opacity = String(tc.elementAlpha);
+  }
+}
+
 function createCSSElement(tc: TestCase): HTMLElement {
   const shape = tc.drawShape ?? 'rect';
 
@@ -301,6 +319,7 @@ function createCSSElement(tc: TestCase): HTMLElement {
     el.style.background = tc.bgColor;
     el.style.borderRadius = '50%';
     el.style.filter = boxShadowToDropShadow(tc.boxShadow);
+    applyDemoElementOpacity(el, tc);
     return el;
   }
 
@@ -316,6 +335,7 @@ function createCSSElement(tc: TestCase): HTMLElement {
     // texture-mode two-pass Gaussian blur.
     wrap.style.filter = boxShadowToDropShadow(tc.boxShadow);
     wrap.innerHTML = buildShapeSVG(shape, tc.boxWidth, tc.bgColor);
+    applyDemoElementOpacity(wrap, tc);
     return wrap;
   }
 
@@ -334,6 +354,7 @@ function createCSSElement(tc: TestCase): HTMLElement {
     el.style.transformOrigin = '0 0';
     el.style.transform = `rotate(${tc.rotation * (180 / Math.PI)}deg)`;
   }
+  applyDemoElementOpacity(el, tc);
   return el;
 }
 
@@ -350,6 +371,9 @@ function buildLabelParts(tc: TestCase): LabelParts {
   let cssNote = isTexture ? 'filter: drop-shadow()' : 'box-shadow';
   if (isTexture && hasInset) {
     cssNote += ' (inset not supported — showing outer)';
+  }
+  if (tc.elementAlpha != null && tc.elementAlpha !== 1) {
+    cssNote += `; opacity ${tc.elementAlpha}`;
   }
   return {
     title: tc.label,
@@ -640,6 +664,9 @@ async function initVisualTab() {
       quality: tc.quality,
     });
     gfx.filters = [filter];
+    if (tc.elementAlpha != null) {
+      gfx.alpha = tc.elementAlpha;
+    }
     rowContainer.addChild(gfx);
   }
 

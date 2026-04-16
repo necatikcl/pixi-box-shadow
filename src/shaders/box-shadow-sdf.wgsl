@@ -25,6 +25,7 @@ struct BoxShadowUniforms {
   uShadowOffsetBlurSpread: array<vec4<f32>, 8>,
   uShadowColor: array<vec4<f32>, 8>,
   uShadowInset: array<vec4<f32>, 2>,
+  uWorldAlpha: f32,
 };
 
 @group(0) @binding(0) var<uniform> gfu: GlobalFilterUniforms;
@@ -116,6 +117,13 @@ fn getShadowInset(index: i32) -> f32 {
 fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
   let texColor = textureSample(uTexture, uSampler, input.uv);
 
+  // CSS group opacity: flatten shadow + fill at full opacity, then multiply once.
+  if (bsu.uWorldAlpha < 1e-5) {
+    return vec4<f32>(0.0);
+  }
+  let wa = bsu.uWorldAlpha;
+  let texFull = texColor / wa;
+
   var p: vec2<f32>;
   if (bsu.uWTrans.z > 0.5) {
     let world = input.pixelCoord * bsu.uFilterToWorld.xy + bsu.uFilterToWorld.zw;
@@ -176,11 +184,11 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
   }
 
   var color = outerResult;
-  color = texColor + color * (1.0 - texColor.a);
+  color = texFull + color * (1.0 - texFull.a);
   color = vec4<f32>(
     insetResult.rgb + color.rgb * (1.0 - insetResult.a),
     insetResult.a + color.a * (1.0 - insetResult.a)
   );
 
-  return color;
+  return color * wa;
 }

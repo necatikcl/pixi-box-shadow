@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pixi-box-shadow — group opacity (CSS vs Pixi)</title>
+  <style>
+    :root {
+      --checker: #c8c8c8;
+      --checker-alt: #e8e8e8;
+      --fg: #111;
+      --muted: #555;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: system-ui, sans-serif;
+      color: var(--fg);
+    }
+
+    .page {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 24px 16px 48px;
+    }
+
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin: 0 0 8px;
+    }
+
+    .desc {
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.45;
+      margin: 0 0 20px;
+    }
+
+    .desc code {
+      font-size: 0.82rem;
+    }
+
+    .row {
+      display: flex;
+      gap: 0;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      overflow: hidden;
+      min-height: 320px;
+    }
+
+    .pane {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 20px 16px 24px;
+      background: repeating-conic-gradient(var(--checker) 0% 25%, var(--checker-alt) 0% 50%) 50% / 24px 24px;
+    }
+
+    .pane:first-child {
+      border-right: 1px solid #ccc;
+    }
+
+    .pane h2 {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin: 0 0 12px;
+      color: var(--muted);
+    }
+
+    .stage {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 220px;
+      width: 100%;
+    }
+
+    #css-box {
+      width: 160px;
+      height: 80px;
+      background: #ffffff;
+      border-radius: 12px;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+      opacity: 0.35;
+    }
+
+    #pixi-host canvas {
+      display: block;
+    }
+
+    .debug {
+      margin-top: 12px;
+      font-family: ui-monospace, monospace;
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+      max-width: 100%;
+      word-break: break-all;
+    }
+
+    .back {
+      margin-top: 20px;
+      font-size: 0.875rem;
+    }
+
+    .back a {
+      color: #06c;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="page">
+    <h1>Group opacity regression</h1>
+    <p class="desc">
+      CSS applies <code>opacity</code> to the <strong>flattened</strong> element + <code>box-shadow</code>, so the
+      shadow
+      should not read as a separate 35% layer under a 35% fill (no muddy interior). Pixi should match the left column.
+      Filter uniform <code>uWorldAlpha</code> must follow Pixi v8 render-group alpha (see debug line).
+    </p>
+
+    <div class="row">
+      <div class="pane">
+        <h2>CSS reference</h2>
+        <div class="stage">
+          <div id="css-box" aria-hidden="true"></div>
+        </div>
+        <p class="debug">opacity: 0.35 · box-shadow: 0 6px 18px rgba(0,0,0,0.55)</p>
+      </div>
+      <div class="pane">
+        <h2>PixiJS + BoxShadowFilter</h2>
+        <div class="stage">
+          <div id="pixi-host"></div>
+        </div>
+        <p class="debug" id="pixi-debug">Initializing…</p>
+      </div>
+    </div>
+
+    <p class="back"><a href="./index.html">← Main demo</a></p>
+  </div>
+
+  <script type="module" src="./alpha-playground.ts"></script>
+</body>
+
+</html>

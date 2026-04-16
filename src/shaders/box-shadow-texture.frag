@@ -31,6 +31,9 @@ uniform int uQuality;
 uniform float uMaxSigma;
 uniform int uRenderElement;
 
+/** Display-object alpha (worldAlpha) — scales shadows with the element like CSS opacity */
+uniform float uWorldAlpha;
+
 float erf_approx(float x) {
     float ax = abs(x);
     float t = 1.0 / (1.0 + 0.3275911 * ax);
@@ -96,6 +99,14 @@ float readBlurredAlpha(vec2 uv, float sigma, float spread) {
 void main(void) {
     vec4 texColor = texture(uTexture, vTextureCoord);
 
+    // CSS group opacity: flatten shadow + fill at full opacity, then multiply once.
+    if (uWorldAlpha < 1e-5) {
+        finalColor = vec4(0.0);
+        return;
+    }
+    float wa = uWorldAlpha;
+    vec4 texFull = texColor / wa;
+
     vec2 localPos = vPixelCoord - uPaddingOffset;
     vec2 elementCenter = uElementSize * 0.5;
     vec2 p = localPos - elementCenter;
@@ -107,7 +118,7 @@ void main(void) {
     float elementSDF = sdRoundedBox(p, halfSize, baseRadii);
     float insideElement;
     if (uShapeMode == 1) {
-        insideElement = texColor.a;
+        insideElement = texFull.a;
     } else {
         insideElement = 1.0 - smoothstep(-0.5, 0.5, elementSDF);
     }
@@ -137,11 +148,12 @@ void main(void) {
                 sigma,
                 isInset > 0.5 ? -spread : spread
             );
+            float aFull = clamp(sampledAlpha / wa, 0.0, 1.0);
 
             if (isInset > 0.5) {
-                shadowValue = (1.0 - sampledAlpha) * step(0.5, insideElement);
+                shadowValue = (1.0 - aFull) * step(0.5, insideElement);
             } else {
-                shadowValue = sampledAlpha;
+                shadowValue = aFull;
             }
 
             vec4 shadow = vec4(shadowCol.rgb * shadowCol.a * shadowValue, shadowCol.a * shadowValue);
@@ -174,12 +186,12 @@ void main(void) {
 
     if (uRenderElement == 1) {
         vec4 color = outerResult;
-        color = texColor + color * (1.0 - texColor.a);
+        color = texFull + color * (1.0 - texFull.a);
         color = vec4(
             insetResult.rgb + color.rgb * (1.0 - insetResult.a),
             insetResult.a + color.a * (1.0 - insetResult.a)
         );
-        finalColor = color;
+        finalColor = color * wa;
     } else {
         finalColor = outerResult;
     }

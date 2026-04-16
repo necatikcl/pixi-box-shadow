@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/necatikcl/pixi-box-shadow/compare/v1.1.0...v1.2.0) (2026-04-16)
+
+
+### Features
+
+* add element opacity support for shadows ([6741103](https://github.com/necatikcl/pixi-box-shadow/commit/6741103d8b54889cbf6c70c25216a89cd48c26d5))
+
 # [1.1.0](https://github.com/necatikcl/pixi-box-shadow/compare/v1.0.2...v1.1.0) (2026-04-15)
 
 

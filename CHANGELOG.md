@@ -1,3 +1,10 @@
+## [1.2.1](https://github.com/necatikcl/pixi-box-shadow/compare/v1.2.0...v1.2.1) (2026-05-16)
+
+
+### Bug Fixes
+
+* preserve shadows with cacheAsTexture ([#8](https://github.com/necatikcl/pixi-box-shadow/issues/8)) ([787d070](https://github.com/necatikcl/pixi-box-shadow/commit/787d070d4a52203d1184617fa0f587658fd20a4a))
+
 # [1.2.0](https://github.com/necatikcl/pixi-box-shadow/compare/v1.1.0...v1.2.0) (2026-04-16)
 
 

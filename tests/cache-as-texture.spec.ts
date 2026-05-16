@@ -20,6 +20,8 @@ async function runScenario(page: Page, options: ScenarioOptions): Promise<CacheS
 }
 
 function expectCachedShadowToMatchUncached(cached: CacheScenarioResult, uncached: CacheScenarioResult): void {
+  expect(cached.elementWidth).toBeCloseTo(uncached.elementWidth, 1);
+  expect(cached.elementHeight).toBeCloseTo(uncached.elementHeight, 1);
   expect(cached.centerAlpha).toBeGreaterThan(230);
   expect(cached.shadowProbeAlpha).toBeGreaterThan(12);
   expect(cached.shadowProbeAlpha).toBeGreaterThanOrEqual(uncached.shadowProbeAlpha * 0.35);
@@ -36,6 +38,8 @@ test('preserves box-mode shadows when the filtered object is cached as a texture
   const uncached = await runScenario(page, { shape: 'rect', cache: false });
   const cached = await runScenario(page, { shape: 'rect', cache: true });
 
+  expect(uncached.elementWidth).toBeCloseTo(80, 1);
+  expect(uncached.elementHeight).toBeCloseTo(50, 1);
   expect(cached.cacheTextureBounds).not.toBeNull();
   expect(cached.cacheTextureBounds!.width).toBeGreaterThanOrEqual(80 + cached.filterPadding * 2);
   expect(cached.cacheTextureBounds!.height).toBeGreaterThanOrEqual(50 + cached.filterPadding * 2);
@@ -46,6 +50,8 @@ test('preserves rotated box-mode shadows when the filtered object is cached', as
   const uncached = await runScenario(page, { shape: 'rotatedRect', cache: false });
   const cached = await runScenario(page, { shape: 'rotatedRect', cache: true });
 
+  expect(uncached.elementWidth).toBeCloseTo(80, 1);
+  expect(uncached.elementHeight).toBeCloseTo(50, 1);
   expect(cached.cacheTextureBounds).not.toBeNull();
   expect(cached.cacheTextureBounds!.width).toBeGreaterThan(80);
   expect(cached.cacheTextureBounds!.height).toBeGreaterThan(50);

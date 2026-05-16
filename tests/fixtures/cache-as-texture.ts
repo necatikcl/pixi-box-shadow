@@ -30,6 +30,8 @@ interface AlphaBounds {
 
 export interface CacheScenarioResult {
   filterPadding: number;
+  elementWidth: number;
+  elementHeight: number;
   cacheTextureBounds: BoundsSnapshot | null;
   alphaBounds: AlphaBounds;
   shadowProbeAlpha: number;
@@ -188,6 +190,8 @@ async function renderScenario(options: ScenarioOptions): Promise<CacheScenarioRe
   const imageData = extractImageData(app);
   const result: CacheScenarioResult = {
     filterPadding: filter.padding,
+    elementWidth: filter.elementWidth,
+    elementHeight: filter.elementHeight,
     cacheTextureBounds: cacheTarget ? getCacheTextureBounds(cacheTarget) : null,
     alphaBounds: measureAlphaBounds(imageData),
     shadowProbeAlpha: options.shape === 'circle'

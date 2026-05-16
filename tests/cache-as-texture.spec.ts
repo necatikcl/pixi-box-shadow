@@ -7,6 +7,9 @@ interface ScenarioOptions {
   shapeMode?: 'box' | 'texture';
   cache: boolean;
   cacheTarget?: 'self' | 'parent';
+  parentPosition?: { x: number; y: number };
+  localOrigin?: boolean;
+  moveParentAfterCache?: { x: number; y: number };
 }
 
 declare global {
@@ -75,5 +78,96 @@ test('preserves child shadows when the parent container is cached as a texture',
   expect(cached.cacheTextureBounds).not.toBeNull();
   expect(cached.cacheTextureBounds!.width).toBeGreaterThanOrEqual(80 + cached.filterPadding * 2);
   expect(cached.cacheTextureBounds!.height).toBeGreaterThanOrEqual(50 + cached.filterPadding * 2);
+  expectCachedShadowToMatchUncached(cached, uncached);
+});
+
+test('preserves self-cached shadows inside a positioned parent container', async ({ page }) => {
+  const parentPosition = { x: 44, y: 28 };
+  const uncached = await runScenario(page, { shape: 'rect', cache: false, parentPosition });
+  const cached = await runScenario(page, { shape: 'rect', cache: true, parentPosition });
+
+  expect(cached.cacheTextureBounds).not.toBeNull();
+  expect(cached.cacheTextureBounds!.width).toBeGreaterThanOrEqual(80 + cached.filterPadding * 2);
+  expect(cached.cacheTextureBounds!.height).toBeGreaterThanOrEqual(50 + cached.filterPadding * 2);
+  expectCachedShadowToMatchUncached(cached, uncached);
+});
+
+test('preserves self-cached shadows for a local-origin child in a positioned parent', async ({ page }) => {
+  const parentPosition = { x: 80, y: 65 };
+  const uncached = await runScenario(page, { shape: 'rect', cache: false, parentPosition, localOrigin: true });
+  const cached = await runScenario(page, { shape: 'rect', cache: true, parentPosition, localOrigin: true });
+
+  expect(cached.cacheTextureBounds).not.toBeNull();
+  expect(cached.cacheTextureBounds!.width).toBeGreaterThanOrEqual(80 + cached.filterPadding * 2);
+  expect(cached.cacheTextureBounds!.height).toBeGreaterThanOrEqual(50 + cached.filterPadding * 2);
+  expectCachedShadowToMatchUncached(cached, uncached);
+});
+
+test('preserves self-cached shadows when the parent moves after cache generation', async ({ page }) => {
+  const finalParentPosition = { x: 80, y: 65 };
+  const uncached = await runScenario(page, {
+    shape: 'rect',
+    cache: false,
+    parentPosition: finalParentPosition,
+    localOrigin: true,
+  });
+  const cached = await runScenario(page, {
+    shape: 'rect',
+    cache: true,
+    parentPosition: { x: 0, y: 0 },
+    moveParentAfterCache: finalParentPosition,
+    localOrigin: true,
+  });
+
+  expect(cached.cacheTextureBounds).not.toBeNull();
+  expect(cached.cacheTextureBounds!.width).toBeGreaterThanOrEqual(80 + cached.filterPadding * 2);
+  expect(cached.cacheTextureBounds!.height).toBeGreaterThanOrEqual(50 + cached.filterPadding * 2);
+  expectCachedShadowToMatchUncached(cached, uncached);
+});
+
+test('preserves shadows when a cached parent container moves after cache generation', async ({ page }) => {
+  const finalParentPosition = { x: 80, y: 65 };
+  const uncached = await runScenario(page, {
+    shape: 'rect',
+    cache: false,
+    cacheTarget: 'parent',
+    parentPosition: finalParentPosition,
+    localOrigin: true,
+  });
+  const cached = await runScenario(page, {
+    shape: 'rect',
+    cache: true,
+    cacheTarget: 'parent',
+    parentPosition: { x: 0, y: 0 },
+    moveParentAfterCache: finalParentPosition,
+    localOrigin: true,
+  });
+
+  expect(cached.cacheTextureBounds).not.toBeNull();
+  expect(cached.cacheTextureBounds!.width).toBeGreaterThanOrEqual(80 + cached.filterPadding * 2);
+  expect(cached.cacheTextureBounds!.height).toBeGreaterThanOrEqual(50 + cached.filterPadding * 2);
+  expectCachedShadowToMatchUncached(cached, uncached);
+});
+
+test('preserves texture-mode self-cached shadows inside a positioned parent', async ({ page }) => {
+  const parentPosition = { x: 88, y: 58 };
+  const uncached = await runScenario(page, {
+    shape: 'circle',
+    shapeMode: 'texture',
+    cache: false,
+    parentPosition,
+    localOrigin: true,
+  });
+  const cached = await runScenario(page, {
+    shape: 'circle',
+    shapeMode: 'texture',
+    cache: true,
+    parentPosition,
+    localOrigin: true,
+  });
+
+  expect(cached.cacheTextureBounds).not.toBeNull();
+  expect(cached.cacheTextureBounds!.width).toBeGreaterThanOrEqual(64 + cached.filterPadding * 2);
+  expect(cached.cacheTextureBounds!.height).toBeGreaterThanOrEqual(64 + cached.filterPadding * 2);
   expectCachedShadowToMatchUncached(cached, uncached);
 });

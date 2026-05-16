@@ -1,4 +1,4 @@
-import { Filter, GlProgram, GpuProgram, Matrix, TexturePool, Texture } from 'pixi.js';
+import { Filter, FilterEffect, GlProgram, GpuProgram, Matrix, TexturePool, Texture } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import type { FilterSystem } from 'pixi.js';
 import type { RenderSurface } from 'pixi.js';
@@ -21,6 +21,93 @@ import blurWgslSrc from './shaders/alpha-blur.wgsl?raw';
 interface ActiveFilterData {
   container: Container | null;
   bounds: { minX: number; minY: number; width: number; height: number };
+}
+
+const BOX_SHADOW_FILTER_MARKER = '__pixiBoxShadowFilter';
+const FILTER_EFFECT_PATCH_MARKER = '__pixiBoxShadowLocalBoundsPatch';
+let suppressBoxShadowLocalBoundsPadding = 0;
+
+interface BoundsWithPadding {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  pad(paddingX: number, paddingY?: number): unknown;
+}
+
+interface LocalBoundsSnapshot {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface FilterEffectWithBoxShadowPatch {
+  filters?: readonly Filter[] | null;
+  addLocalBounds?: (bounds: BoundsWithPadding, rootContainer: Container) => void;
+  [FILTER_EFFECT_PATCH_MARKER]?: true;
+}
+
+type BoxShadowMarkedFilter = Filter & {
+  [BOX_SHADOW_FILTER_MARKER]?: true;
+};
+
+const unpaddedCacheLocalBounds = new WeakMap<Container, LocalBoundsSnapshot>();
+
+function isBoxShadowFilter(filter: Filter): filter is BoxShadowMarkedFilter {
+  return (filter as BoxShadowMarkedFilter)[BOX_SHADOW_FILTER_MARKER] === true;
+}
+
+/**
+ * PixiJS v8 sizes `cacheAsTexture()` render-group textures from `getLocalBounds()`.
+ * Filter padding is applied later by the filter system, so cached textures can be
+ * allocated around only the unfiltered geometry and clip BoxShadowFilter output.
+ *
+ * Pixi local-bounds traversal already asks each effect for optional local-bounds
+ * expansion via `addLocalBounds`; install a narrow compatibility hook that expands
+ * bounds only for BoxShadowFilter instances while preserving any Pixi implementation
+ * that may be added in future versions.
+ */
+function installFilterEffectLocalBoundsPatch(): void {
+  const proto = FilterEffect.prototype as FilterEffectWithBoxShadowPatch;
+  if (proto[FILTER_EFFECT_PATCH_MARKER]) return;
+
+  const originalAddLocalBounds = proto.addLocalBounds;
+
+  proto.addLocalBounds = function addBoxShadowLocalBounds(bounds, rootContainer): void {
+    originalAddLocalBounds?.call(this, bounds, rootContainer);
+    if (suppressBoxShadowLocalBoundsPadding > 0) return;
+
+    const filters = this.filters;
+    if (!filters?.length) return;
+
+    let padding = 0;
+    for (const filter of filters) {
+      if (!isBoxShadowFilter(filter)) continue;
+      padding += Math.max(0, filter.padding);
+    }
+
+    if (padding > 0) {
+      unpaddedCacheLocalBounds.set(rootContainer, {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+      });
+      bounds.pad(padding);
+    }
+  };
+
+  proto[FILTER_EFFECT_PATCH_MARKER] = true;
+}
+
+function getUnpaddedLocalBounds(container: Container): ReturnType<Container['getLocalBounds']> {
+  suppressBoxShadowLocalBoundsPadding++;
+  try {
+    return container.getLocalBounds();
+  } finally {
+    suppressBoxShadowLocalBoundsPadding--;
+  }
 }
 
 /**
@@ -78,6 +165,8 @@ export class BoxShadowFilter extends Filter {
 
   /** Scratch matrix for world→local per apply (box mode, rotation). */
   private readonly _invWorld = new Matrix();
+  private readonly _invFilterFrame = new Matrix();
+  private readonly _filterFrameToLocal = new Matrix();
 
   /** GPU uniforms for the main filter (`texture` mode adds uShapeMode, uQuality, …). */
   public uniforms: {
@@ -101,6 +190,8 @@ export class BoxShadowFilter extends Filter {
   };
 
   constructor(options: BoxShadowFilterOptions = {}) {
+    installFilterEffectLocalBoundsPatch();
+
     const opts = { ...BoxShadowFilter.DEFAULT_OPTIONS, ...options };
 
     let shadows: BoxShadowOptions[];
@@ -208,6 +299,7 @@ export class BoxShadowFilter extends Filter {
     this._shadows = shadows;
     this._shapeMode = shapeMode;
     this._quality = quality;
+    (this as BoxShadowMarkedFilter)[BOX_SHADOW_FILTER_MARKER] = true;
 
     this._updateShadowUniforms();
   }
@@ -316,7 +408,13 @@ export class BoxShadowFilter extends Filter {
       return;
     }
 
-    const lb = container.getLocalBounds();
+    const containerRenderGroup = (container as Container & {
+      renderGroup?: { isCachedAsTexture?: boolean };
+    }).renderGroup;
+    const cachedLocalBounds = containerRenderGroup?.isCachedAsTexture
+      ? unpaddedCacheLocalBounds.get(container)
+      : undefined;
+    const lb = cachedLocalBounds ?? getUnpaddedLocalBounds(container);
     const lw = lb.width;
     const lh = lb.height;
     if (lw < 1e-4 || lh < 1e-4) {
@@ -325,7 +423,19 @@ export class BoxShadowFilter extends Filter {
     }
 
     this._invWorld.copyFrom(container.worldTransform).invert();
-    const inv = this._invWorld;
+    let inv = this._invWorld;
+    const renderGroup = (container as Container & {
+      renderGroup?: { cacheToLocalTransform?: Matrix | null };
+      parentRenderGroup?: { cacheToLocalTransform?: Matrix | null };
+    }).renderGroup ?? (container as Container & {
+      parentRenderGroup?: { cacheToLocalTransform?: Matrix | null };
+    }).parentRenderGroup;
+    const filterFrameTransform = renderGroup?.cacheToLocalTransform ?? null;
+    if (filterFrameTransform) {
+      this._invFilterFrame.copyFrom(filterFrameTransform).invert();
+      this._filterFrameToLocal.appendFrom(this._invWorld, this._invFilterFrame);
+      inv = this._filterFrameToLocal;
+    }
 
     uFtw[0] = bounds.width / frameW;
     uFtw[1] = bounds.height / frameH;

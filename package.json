@@ -20,6 +20,7 @@
     "dev": "vite serve examples",
     "build": "vite build && tsc --emitDeclarationOnly",
     "typecheck": "tsc --noEmit",
+    "test:cache": "playwright test tests/cache-as-texture.spec.ts",
     "semantic-release": "semantic-release"
   },
   "prepublishOnly": "npm run build",

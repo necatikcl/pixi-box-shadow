@@ -9,6 +9,9 @@ interface ScenarioOptions {
   shapeMode?: 'box' | 'texture';
   cache: boolean;
   cacheTarget?: CacheTarget;
+  parentPosition?: { x: number; y: number };
+  localOrigin?: boolean;
+  moveParentAfterCache?: { x: number; y: number };
 }
 
 interface BoundsSnapshot {
@@ -59,13 +62,21 @@ function createShape(options: ScenarioOptions): Graphics {
     const r = CIRCLE_SIZE / 2;
     gfx.circle(r, r, r);
     gfx.fill(0xffffff);
-    gfx.position.set(CIRCLE_X, CIRCLE_Y);
+    if (options.localOrigin) {
+      gfx.position.set(0, 0);
+    } else {
+      gfx.position.set(CIRCLE_X, CIRCLE_Y);
+    }
     return gfx;
   }
 
   gfx.roundRect(0, 0, RECT_W, RECT_H, 8);
   gfx.fill(0xffffff);
-  gfx.position.set(RECT_X, RECT_Y);
+  if (options.localOrigin) {
+    gfx.position.set(0, 0);
+  } else {
+    gfx.position.set(RECT_X, RECT_Y);
+  }
 
   if (options.shape === 'rotatedRect') {
     gfx.pivot.set(RECT_W / 2, RECT_H / 2);
@@ -156,6 +167,10 @@ async function renderScenario(options: ScenarioOptions): Promise<CacheScenarioRe
   });
 
   const shape = createShape(options);
+  const finalParentPosition = options.moveParentAfterCache ?? options.parentPosition;
+  const probeOrigin = options.localOrigin && finalParentPosition
+    ? finalParentPosition
+    : { x: RECT_X, y: RECT_Y };
   const filter = new BoxShadowFilter({
     boxShadow: SHADOW,
     borderRadius: options.shape === 'circle' ? 0 : 8,
@@ -166,16 +181,27 @@ async function renderScenario(options: ScenarioOptions): Promise<CacheScenarioRe
 
   let cacheTarget: Container | null = null;
 
-  if (options.cacheTarget === 'parent') {
+  const shouldWrapInParent = options.cacheTarget === 'parent' || options.parentPosition !== undefined;
+  let parentContainer: Container | null = null;
+  if (shouldWrapInParent) {
     const parent = new Container();
-    shape.position.x -= 16;
-    shape.position.y -= 12;
-    parent.position.set(16, 12);
+    const parentPosition = options.parentPosition ?? { x: 16, y: 12 };
+    if (!options.localOrigin) {
+      shape.position.x -= parentPosition.x;
+      shape.position.y -= parentPosition.y;
+    }
+    parent.position.set(parentPosition.x, parentPosition.y);
     parent.addChild(shape);
     app.stage.addChild(parent);
+    parentContainer = parent;
     if (options.cache) {
-      parent.cacheAsTexture(true);
-      cacheTarget = parent;
+      if (options.cacheTarget === 'parent') {
+        parent.cacheAsTexture(true);
+        cacheTarget = parent;
+      } else {
+        shape.cacheAsTexture(true);
+        cacheTarget = shape;
+      }
     }
   } else {
     app.stage.addChild(shape);
@@ -183,6 +209,11 @@ async function renderScenario(options: ScenarioOptions): Promise<CacheScenarioRe
       shape.cacheAsTexture(true);
       cacheTarget = shape;
     }
+  }
+
+  if (options.moveParentAfterCache && options.cache && parentContainer) {
+    app.render();
+    parentContainer.position.set(options.moveParentAfterCache.x, options.moveParentAfterCache.y);
   }
 
   app.render();
@@ -196,10 +227,10 @@ async function renderScenario(options: ScenarioOptions): Promise<CacheScenarioRe
     alphaBounds: measureAlphaBounds(imageData),
     shadowProbeAlpha: options.shape === 'circle'
       ? alphaAt(imageData, CIRCLE_X - 10, CIRCLE_Y + CIRCLE_SIZE / 2)
-      : alphaAt(imageData, RECT_X - 10, RECT_Y + RECT_H / 2),
+      : alphaAt(imageData, probeOrigin.x - 10, probeOrigin.y + RECT_H / 2),
     centerAlpha: options.shape === 'circle'
       ? alphaAt(imageData, CIRCLE_X + CIRCLE_SIZE / 2, CIRCLE_Y + CIRCLE_SIZE / 2)
-      : alphaAt(imageData, RECT_X + RECT_W / 2, RECT_Y + RECT_H / 2),
+      : alphaAt(imageData, probeOrigin.x + RECT_W / 2, probeOrigin.y + RECT_H / 2),
     canvasWidth: imageData.width,
     canvasHeight: imageData.height,
   };

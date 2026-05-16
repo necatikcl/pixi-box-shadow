@@ -1,4 +1,4 @@
-import { Filter, GlProgram, GpuProgram, Matrix, TexturePool, Texture } from 'pixi.js';
+import { Filter, FilterEffect, GlProgram, GpuProgram, Matrix, TexturePool, Texture } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import type { FilterSystem } from 'pixi.js';
 import type { RenderSurface } from 'pixi.js';
@@ -21,6 +21,63 @@ import blurWgslSrc from './shaders/alpha-blur.wgsl?raw';
 interface ActiveFilterData {
   container: Container | null;
   bounds: { minX: number; minY: number; width: number; height: number };
+}
+
+const BOX_SHADOW_FILTER_MARKER = '__pixiBoxShadowFilter';
+const FILTER_EFFECT_PATCH_MARKER = '__pixiBoxShadowLocalBoundsPatch';
+
+interface BoundsWithPadding {
+  pad(paddingX: number, paddingY?: number): unknown;
+}
+
+interface FilterEffectWithBoxShadowPatch {
+  filters?: readonly Filter[] | null;
+  addLocalBounds?: (bounds: BoundsWithPadding, rootContainer: Container) => void;
+  [FILTER_EFFECT_PATCH_MARKER]?: true;
+}
+
+type BoxShadowMarkedFilter = Filter & {
+  [BOX_SHADOW_FILTER_MARKER]?: true;
+};
+
+function isBoxShadowFilter(filter: Filter): filter is BoxShadowMarkedFilter {
+  return (filter as BoxShadowMarkedFilter)[BOX_SHADOW_FILTER_MARKER] === true;
+}
+
+/**
+ * PixiJS v8 sizes `cacheAsTexture()` render-group textures from `getLocalBounds()`.
+ * Filter padding is applied later by the filter system, so cached textures can be
+ * allocated around only the unfiltered geometry and clip BoxShadowFilter output.
+ *
+ * Pixi local-bounds traversal already asks each effect for optional local-bounds
+ * expansion via `addLocalBounds`; install a narrow compatibility hook that expands
+ * bounds only for BoxShadowFilter instances while preserving any Pixi implementation
+ * that may be added in future versions.
+ */
+function installFilterEffectLocalBoundsPatch(): void {
+  const proto = FilterEffect.prototype as FilterEffectWithBoxShadowPatch;
+  if (proto[FILTER_EFFECT_PATCH_MARKER]) return;
+
+  const originalAddLocalBounds = proto.addLocalBounds;
+
+  proto.addLocalBounds = function addBoxShadowLocalBounds(bounds, rootContainer): void {
+    originalAddLocalBounds?.call(this, bounds, rootContainer);
+
+    const filters = this.filters;
+    if (!filters?.length) return;
+
+    let padding = 0;
+    for (const filter of filters) {
+      if (!isBoxShadowFilter(filter)) continue;
+      padding += Math.max(0, filter.padding);
+    }
+
+    if (padding > 0) {
+      bounds.pad(padding);
+    }
+  };
+
+  proto[FILTER_EFFECT_PATCH_MARKER] = true;
 }
 
 /**
@@ -101,6 +158,8 @@ export class BoxShadowFilter extends Filter {
   };
 
   constructor(options: BoxShadowFilterOptions = {}) {
+    installFilterEffectLocalBoundsPatch();
+
     const opts = { ...BoxShadowFilter.DEFAULT_OPTIONS, ...options };
 
     let shadows: BoxShadowOptions[];
@@ -208,6 +267,7 @@ export class BoxShadowFilter extends Filter {
     this._shadows = shadows;
     this._shapeMode = shapeMode;
     this._quality = quality;
+    (this as BoxShadowMarkedFilter)[BOX_SHADOW_FILTER_MARKER] = true;
 
     this._updateShadowUniforms();
   }

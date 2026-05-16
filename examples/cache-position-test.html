@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pixi-box-shadow — cache + parent position test</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --border: rgba(0, 0, 0, 0.12);
+      --muted: #666;
+      --accent: #0070f3;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: #111;
+    }
+
+    .page {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 24px 18px 48px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 1.35rem;
+      letter-spacing: -0.02em;
+    }
+
+    .desc {
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.5;
+      max-width: 62rem;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 10px;
+      margin: 0 0 16px;
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel);
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+
+    select,
+    input[type="range"] {
+      width: 100%;
+    }
+
+    .check {
+      justify-content: end;
+      flex-direction: row;
+      align-items: center;
+      text-transform: none;
+      letter-spacing: 0;
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: #111;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      background: var(--panel);
+    }
+
+    .card h2 {
+      margin: 0;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.86rem;
+      font-weight: 700;
+    }
+
+    .host {
+      height: 260px;
+      display: grid;
+      place-items: center;
+      background:
+        linear-gradient(90deg, rgba(0, 0, 0, 0.045) 1px, transparent 1px),
+        linear-gradient(rgba(0, 0, 0, 0.045) 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    pre {
+      margin: 0;
+      padding: 10px 12px 12px;
+      min-height: 84px;
+      overflow: auto;
+      border-top: 1px solid var(--border);
+      background: #fafafa;
+      color: #333;
+      font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: pre-wrap;
+    }
+
+    .back {
+      margin: 18px 0 0;
+      font-size: 0.9rem;
+    }
+
+    a {
+      color: var(--accent);
+    }
+  </style>
+</head>
+
+<body>
+  <main class="page">
+    <h1>cacheAsTexture + parent.position test</h1>
+    <p class="desc">
+      This page renders the same filtered object three ways: uncached, child cached, and parent cached.
+      Move the parent sliders and toggle options. If the cache path is healthy, the cached columns should stay visually
+      aligned with the uncached reference and keep their shadow.
+    </p>
+
+    <section class="controls" aria-label="Test controls">
+      <label>
+        Parent X
+        <input id="parent-x" type="range" min="-30" max="160" value="80" />
+        <span id="parent-x-value">80</span>
+      </label>
+      <label>
+        Parent Y
+        <input id="parent-y" type="range" min="-20" max="130" value="65" />
+        <span id="parent-y-value">65</span>
+      </label>
+      <label>
+        Shape
+        <select id="shape-mode">
+          <option value="box">Box mode rectangle</option>
+          <option value="texture">Texture mode circle</option>
+        </select>
+      </label>
+      <label class="check">
+        <input id="local-origin" type="checkbox" checked />
+        child at local origin
+      </label>
+      <label class="check">
+        <input id="move-after-cache" type="checkbox" />
+        move parent after cache creation
+      </label>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h2>Uncached reference</h2>
+        <div class="host" id="host-uncached"></div>
+        <pre id="debug-uncached">initializing…</pre>
+      </article>
+      <article class="card">
+        <h2>Child cacheAsTexture(true)</h2>
+        <div class="host" id="host-child-cache"></div>
+        <pre id="debug-child-cache">initializing…</pre>
+      </article>
+      <article class="card">
+        <h2>Parent cacheAsTexture(true)</h2>
+        <div class="host" id="host-parent-cache"></div>
+        <pre id="debug-parent-cache">initializing…</pre>
+      </article>
+    </section>
+
+    <p class="back"><a href="./index.html">← Main demo</a></p>
+  </main>
+
+  <script type="module" src="./cache-position-test.ts"></script>
+</body>
+
+</html>

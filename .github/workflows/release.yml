@@ -1,0 +1,56 @@
+# Rulesets cannot bypass as "GitHub Actions": pushes use github-actions[bot], which is not a
+# GitHub App and does not appear in the bypass list. Eligible bypass actors are documented at
+# https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository#granting-bypass-permissions-for-your-branch-or-tag-ruleset
+#
+# This workflow uses a PAT so git pushes are authenticated as that user. Use a fine-grained PAT
+# for an account that already bypasses your ruleset (e.g. you as repo admin). Add repo secret
+# SEMANTIC_RELEASE_GITHUB_TOKEN. Do not reuse it in other workflows unless you accept the same
+# bypass scope. Alternative: create a GitHub App, add it to the ruleset bypass list, and use
+# actions/create-github-app-token instead of a PAT.
+
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.SEMANTIC_RELEASE_GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          # Trusted publishing (OIDC): npm exchanges the GitHub Actions id-token for a short-lived
+          # publish credential. Requires id-token: write on the job and a Trusted Publisher on npmjs.com.
+          # See https://docs.npmjs.com/trusted-publishers
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify package
+        run: npm run typecheck && npm run build
+
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.SEMANTIC_RELEASE_GITHUB_TOKEN }}
+        run: npx semantic-release

@@ -1,0 +1,63 @@
+{
+  "name": "pixi-box-shadow",
+  "version": "1.2.1",
+  "description": "High-performance CSS box-shadow implementation for PixiJS v8 using SDF analytical Gaussian blur",
+  "type": "module",
+  "main": "dist/pixi-box-shadow.cjs",
+  "module": "dist/pixi-box-shadow.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/pixi-box-shadow.mjs",
+      "require": "./dist/pixi-box-shadow.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "vite serve examples",
+    "build": "vite build && tsc --emitDeclarationOnly",
+    "typecheck": "tsc --noEmit",
+    "test:cache": "playwright test tests/cache-as-texture.spec.ts",
+    "semantic-release": "semantic-release"
+  },
+  "prepublishOnly": "npm run build",
+  "keywords": [
+    "pixi",
+    "pixijs",
+    "box-shadow",
+    "shadow",
+    "filter",
+    "webgl",
+    "webgpu",
+    "sdf"
+  ],
+  "author": "",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/necatikcl/pixi-box-shadow.git"
+  },
+  "peerDependencies": {
+    "pixi.js": ">=8.0.0"
+  },
+  "devDependencies": {
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^12.0.6",
+    "@semantic-release/npm": "^13.1.5",
+    "pixi.js": "^8.17.1",
+    "semantic-release": "^25.0.3",
+    "typescript": "^5.5.0",
+    "vite": "^6.0.0"
+  },
+  "dependencies": {
+    "motion": "^12.38.0",
+    "playwright": "^1.59.1"
+  }
+}

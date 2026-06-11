@@ -1,0 +1,38 @@
+## [1.2.1](https://github.com/necatikcl/pixi-box-shadow/compare/v1.2.0...v1.2.1) (2026-05-16)
+
+
+### Bug Fixes
+
+* preserve shadows with cacheAsTexture ([#8](https://github.com/necatikcl/pixi-box-shadow/issues/8)) ([787d070](https://github.com/necatikcl/pixi-box-shadow/commit/787d070d4a52203d1184617fa0f587658fd20a4a))
+
+# [1.2.0](https://github.com/necatikcl/pixi-box-shadow/compare/v1.1.0...v1.2.0) (2026-04-16)
+
+
+### Features
+
+* add element opacity support for shadows ([6741103](https://github.com/necatikcl/pixi-box-shadow/commit/6741103d8b54889cbf6c70c25216a89cd48c26d5))
+
+# [1.1.0](https://github.com/necatikcl/pixi-box-shadow/compare/v1.0.2...v1.1.0) (2026-04-15)
+
+
+### Features
+
+* test script ([eff79c7](https://github.com/necatikcl/pixi-box-shadow/commit/eff79c78d2da0e2b60b3a513ad50d0348d6e2cc0))
+
+## [1.0.2](https://github.com/necatikcl/pixi-box-shadow/compare/v1.0.1...v1.0.2) (2026-04-15)
+
+## [1.0.1](https://github.com/necatikcl/pixi-box-shadow/compare/v1.0.0...v1.0.1) (2026-04-15)
+
+# 1.0.0 (2026-04-14)
+
+
+### Bug Fixes
+
+* GLSL shader compilation error breaking all shadows ([#3](https://github.com/necatikcl/pixi-box-shadow/issues/3)) ([de2f95d](https://github.com/necatikcl/pixi-box-shadow/commit/de2f95d4585a93ccfb9737da714c16b23e703a1f))
+
+
+### Features
+
+* auto-detect element size and add texture-based shadow mode for arbitrary shapes ([#2](https://github.com/necatikcl/pixi-box-shadow/issues/2)) ([2b59075](https://github.com/necatikcl/pixi-box-shadow/commit/2b59075698d8369a6994015fd945281d2df9fef4))
+* initial pixi-box-shadow implementation ([94e3cc6](https://github.com/necatikcl/pixi-box-shadow/commit/94e3cc6e1a127ccd7227fe2839da84d6a0f17a49)), closes [Hi#performance](https://github.com/Hi/issues/performance)
+* replace texture mode disc sampling with two-pass separable Gaussian blur ([#4](https://github.com/necatikcl/pixi-box-shadow/issues/4)) ([67c23f9](https://github.com/necatikcl/pixi-box-shadow/commit/67c23f981ebdf5024db07850e63a98fe3c7a2c16))
